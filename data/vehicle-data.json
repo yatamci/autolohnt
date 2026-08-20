@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Lokaler Fallback und Beispieldaten für AutoLohnt.",
+  "vehicles": [
+    {
+      "hsn": "0035",
+      "tsn": "AFQ",
+      "brand": "Opel",
+      "model": "Corsa",
+      "generation": "D",
+      "engine": "1.2",
+      "fuel": "Benzin",
+      "powerPs": 80,
+      "displacementCc": 1229
+    },
+    {
+      "hsn": "",
+      "tsn": "",
+      "brand": "Toyota",
+      "model": "Yaris",
+      "generation": "III",
+      "engine": "1.5 VVT-i",
+      "fuel": "Benzin",
+      "powerPs": 111,
+      "displacementCc": 1496
+    },
+    {
+      "hsn": "",
+      "tsn": "",
+      "brand": "Mazda",
+      "model": "2",
+      "generation": "DJ",
+      "engine": "1.5 Skyactiv-G",
+      "fuel": "Benzin",
+      "powerPs": 115,
+      "displacementCc": 1496
+    },
+    {
+      "hsn": "",
+      "tsn": "",
+      "brand": "Hyundai",
+      "model": "i20",
+      "generation": "II",
+      "engine": "1.4",
+      "fuel": "Benzin",
+      "powerPs": 100,
+      "displacementCc": 1368
+    }
+  ]
+}
