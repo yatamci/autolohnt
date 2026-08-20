@@ -1,0 +1,193 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>AutoLohnt</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <nav>
+    <a class="logo" href="#">Auto<span>Lohnt</span></a>
+    <div>
+      <button class="icon" id="theme" type="button">◐</button>
+      <button class="icon" id="reset" type="button">↺</button>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-main">
+      <small>DEIN AUTO · DEINE KOSTEN · DEINE ENTSCHEIDUNG</small>
+      <h1>Reparieren, weiterfahren oder verkaufen?</h1>
+      <p>Berechne, wann dein Auto wirtschaftlich noch sinnvoll ist und wann sich ein Wechsel lohnt.</p>
+      <button class="btn blue" id="heroCalc" type="button">Mein Auto berechnen ↓</button>
+    </div>
+    <div class="hero-side">
+      <small>AKTUELLE EMPFEHLUNG</small>
+      <strong id="heroDecision">Noch keine Daten</strong>
+      <p id="heroText">Gib dein Auto ein und starte die Berechnung.</p>
+      <div class="progress"><i id="heroProgress"></i></div>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="current" type="button">Mein Auto</button>
+    <button class="tab" data-tab="repair" type="button">Reparatur prüfen</button>
+    <button class="tab" data-tab="compare" type="button">Neues Auto vergleichen</button>
+    <button class="tab" data-tab="saved" type="button">Meine Autos</button>
+  </div>
+
+  <section id="current" class="page">
+    <div class="card">
+      <h2>🚗 Aktuelles Auto</h2>
+      <p>Fahrzeug- und Kostendaten</p>
+
+      <div class="grid">
+        <label class="wide">Modell / Suche
+          <input id="model" list="models" placeholder="z. B. Opel Corsa D 1.2">
+          <datalist id="models">
+            <option value="Opel Corsa D 1.2 80 PS">
+            <option value="Toyota Yaris III 1.5 VVT-i 111 PS">
+            <option value="Mazda 2 DJ 1.5 Skyactiv-G 115 PS">
+            <option value="Hyundai i20 II 1.4 100 PS">
+            <option value="Kia Rio 1.4">
+            <option value="Honda Jazz 1.4">
+          </datalist>
+        </label>
+
+        <label>HSN <input id="hsn" placeholder="0035"></label>
+        <label>TSN <input id="tsn" placeholder="AFQ"></label>
+        <label>Kaufpreis (€) <input id="buyPrice" type="number" value="3800"></label>
+        <label>Kaufdatum <input id="buyDate" type="date" value="2023-12-15"></label>
+        <label>Km beim Kauf <input id="buyKm" type="number" value="156000"></label>
+        <label>Aktuelle km <input id="currentKm" type="number" value="213000"></label>
+        <label>Km/Jahr <input id="annualKm" type="number" value="22000"></label>
+        <label>Verbrauch l/100 km <input id="consumption" type="number" step=".1" value="6.9"></label>
+        <label>Benzinpreis €/l <input id="fuelPrice" type="number" step=".01" value="2.20"></label>
+        <label>Versicherung €/Jahr <input id="insurance" type="number" value="1044"></label>
+        <label>Kfz-Steuer €/Jahr <input id="tax" type="number" value="87"></label>
+        <label>Reparaturen bisher € <input id="repairs" type="number" value="500"></label>
+        <label>Aktueller Verkaufswert € <input id="resale" type="number" value="2000"></label>
+      </div>
+
+      <div class="profile">
+        <h3>📊 Dein Fahrprofil</h3>
+        <p>Diese Angaben werden direkt in die Berechnung einbezogen.</p>
+
+        <div class="grid">
+          <label>Autobahn % <input id="highway" type="number" value="50"></label>
+          <label>Landstraße % <input id="country" type="number" value="30"></label>
+          <label>Stadt % <input id="city" type="number" value="20"></label>
+          <label>Gewünschte Haltedauer <input id="targetYears" type="number" value="5"></label>
+          <label>Max. Ersatzwagen € <input id="replacementBudget" type="number" value="10000"></label>
+          <label>Wunschpreis Ersatzwagen € <input id="replacementTarget" type="number" value="8000"></label>
+          <label>Reserve nach Kauf € <input id="reserve" type="number" value="2000"></label>
+          <label>Verbrauch wichtig 1–5 <input id="importanceFuel" type="number" min="1" max="5" value="3"></label>
+          <label>Leistung wichtig 1–5 <input id="importancePower" type="number" min="1" max="5" value="4"></label>
+          <label>Sicherheit wichtig 1–5 <input id="importanceSafety" type="number" min="1" max="5" value="2"></label>
+          <label>Komfort wichtig 1–5 <input id="importanceComfort" type="number" min="1" max="5" value="2"></label>
+          <label>Weniger Reparaturen 1–5 <input id="importanceRepair" type="number" min="1" max="5" value="3"></label>
+          <label>Jüngeres Baujahr 1–5 <input id="importanceAge" type="number" min="1" max="5" value="2"></label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn blue" id="calculate" type="button">Berechnen</button>
+        <button class="btn white" id="save" type="button">Auto speichern</button>
+      </div>
+
+      <div id="result" class="result">
+        <strong>Bereit zur Berechnung</strong>
+        <p>Füll zuerst dein Fahrprofil aus und klicke anschließend auf „Berechnen“.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="repair" class="page hidden">
+    <div class="two">
+      <div class="card">
+        <h2>🔧 Reparatur prüfen</h2>
+        <p>Wie teuer darf die nächste Reparatur sein?</p>
+        <label>Reparaturkosten €
+          <input id="repairCost" type="number" value="1500">
+        </label>
+        <label>Erwartete zusätzliche Nutzungsdauer
+          <input id="repairLife" type="number" step=".5" value="1.5">
+        </label>
+        <div class="actions">
+          <button class="btn blue" id="repairCheck" type="button">Reparatur bewerten</button>
+        </div>
+        <div id="repairResult" class="result"></div>
+      </div>
+
+      <div class="card">
+        <h2>🧠 Entscheidungsgrundlage</h2>
+        <p>Die Reparatur wird nicht nur mit dem Kaufpreis verglichen. Entscheidend sind aktueller Fahrzeugwert, Reparaturkosten und zusätzliche Nutzungsdauer.</p>
+        <div class="metrics">
+          <div><b id="mValue">–</b><small>Fahrzeugwert</small></div>
+          <div><b id="mRepair">–</b><small>Reparatur</small></div>
+          <div><b id="mRatio">–</b><small>Reparatur / Wert</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare" class="page hidden">
+    <div class="two">
+      <div class="card">
+        <h2>🆕 Neues Auto</h2>
+        <p>Vergleiche einen möglichen Ersatzwagen mit deinem aktuellen Auto.</p>
+
+        <div class="grid">
+          <label class="wide">Modell
+            <input id="newModel" placeholder="Toyota Yaris 1.5">
+          </label>
+          <label>Erstzulassung <input id="newReg" type="date"></label>
+          <label>Kaufpreis € <input id="newPrice" type="number" value="8000"></label>
+          <label>Kilometerstand <input id="newKm" type="number" value="80000"></label>
+          <label>Verbrauch <input id="newConsumption" type="number" step=".1" value="5.5"></label>
+          <label>PS <input id="newPower" type="number" value="100"></label>
+          <label>Steuer €/Jahr <input id="newTax" type="number" value="100"></label>
+          <label>Versicherung €/Jahr <input id="newInsurance" type="number" value="900"></label>
+          <label>Restwert nach 5 Jahren € <input id="newFutureValue" type="number" value="4000"></label>
+        </div>
+
+        <div class="actions">
+          <button class="btn blue" id="compare" type="button">Vergleich berechnen</button>
+          <button class="btn white" id="saveNew" type="button">Auto speichern</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>⚖️ 5-Jahres-Vergleich</h2>
+        <div id="compareText" class="result">Noch kein Vergleich.</div>
+        <div class="metrics">
+          <div><b id="old5">–</b><small>Aktuelles Auto</small></div>
+          <div><b id="new5">–</b><small>Neues Auto</small></div>
+          <div><b id="diff5">–</b><small>Differenz</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="saved" class="page hidden">
+    <div class="card">
+      <h2>⭐ Meine Autos</h2>
+      <p>Die Fahrzeuge werden lokal in diesem Browser gespeichert.</p>
+      <div id="savedList"></div>
+      <button class="btn white danger" id="clearSaved" type="button">Alle löschen</button>
+    </div>
+  </section>
+
+  <footer>AutoLohnt · lokale Speicherung · Entscheidungshilfe</footer>
+</main>
+
+<script src="app.js" defer></script>
+</body>
+</html>
