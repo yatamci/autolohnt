@@ -1,4 +1,3 @@
-
 {
   "name": "auto-cost-check",
   "version": "1.0.0",
@@ -6,11 +5,8 @@
   "description": "Auto Cost Check – Fahrzeugkosten und Reparaturen vergleichen",
   "scripts": {
     "dev": "vercel dev"
-  }
-  {
+  },
   "engines": {
     "node": "20.x"
   }
-}
-
 }
