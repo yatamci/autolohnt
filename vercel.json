@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/vehicle-search.js": {
-      "runtime": "nodejs20.x"
-    }
-  }
-}
