@@ -1,18 +1,9 @@
 {
-  "name": "autolohnt",
+  "name": "auto-cost-check",
   "version": "1.0.0",
-  "description": "AutoLohnt - Wirtschaftlichkeit von Reparatur, Weiterfahren und Fahrzeugwechsel berechnen.",
   "private": true,
-  "type": "module",
+  "description": "Auto Cost Check – Fahrzeugkosten und Reparaturen vergleichen",
   "scripts": {
-    "dev": "vercel dev",
-    "start": "vercel dev"
-  },
-  "engines": {
-    "node": "20.x"
-  },
+    "dev": "vercel dev"
+  }
 }
-
-  
-  
-  "dependencies": {}
