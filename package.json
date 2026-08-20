@@ -1,0 +1,15 @@
+{
+  "name": "autolohnt",
+  "version": "1.0.0",
+  "description": "AutoLohnt - Wirtschaftlichkeit von Reparatur, Weiterfahren und Fahrzeugwechsel berechnen.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}
