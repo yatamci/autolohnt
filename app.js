@@ -1,1896 +1,2693 @@
 /* =========================================================
-   AutoLohnt – app.js
-   ========================================================= */
+   AUTO COST CHECK
+   app.js
+========================================================= */
 
-(() => {
-  "use strict";
+"use strict";
 
-  /* =======================================================
-     KONSTANTEN
-  ======================================================= */
+/* =========================================================
+   HILFSFUNKTIONEN
+========================================================= */
 
-  const STORAGE_KEY = "autolohnt_saved_cars";
-  const THEME_KEY = "autolohnt_theme";
+const $ = (id) => document.getElementById(id);
 
-  const state = {
-    currentVehicle: null,
-    comparisonVehicle: null,
-    savedCars: loadSavedCars()
-  };
+const API_URL = "/api/vehicle-search";
 
-  /* =======================================================
-     DOM HELPERS
-  ======================================================= */
 
-  const $ = (selector, root = document) =>
-    root.querySelector(selector);
+function clean(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
 
-  const $$ = (selector, root = document) =>
-    [...root.querySelectorAll(selector)];
 
-  function value(id) {
-    const el = document.getElementById(id);
-    return el ? el.value.trim() : "";
+function numberValue(id) {
+  const el = $(id);
+  if (!el) return null;
+
+  const value = parseFloat(
+    String(el.value).replace(",", ".")
+  );
+
+  return Number.isFinite(value) ? value : null;
+}
+
+
+function setValue(id, value) {
+  const el = $(id);
+  if (!el) return;
+
+  el.value =
+    value === undefined ||
+    value === null
+      ? ""
+      : value;
+}
+
+
+function formatNumber(value, decimals = 0) {
+  if (
+    value === undefined ||
+    value === null ||
+    !Number.isFinite(Number(value))
+  ) {
+    return "–";
   }
 
-  function numberValue(id) {
-    const raw = value(id)
-      .replace(/\./g, "")
-      .replace(",", ".");
+  return new Intl.NumberFormat("de-DE", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  }).format(Number(value));
+}
 
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : 0;
+
+function formatEuro(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    !Number.isFinite(Number(value))
+  ) {
+    return "–";
   }
 
-  function setValue(id, val) {
-    const el = document.getElementById(id);
-    if (el && val !== undefined && val !== null) {
-      el.value = val;
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value));
+}
+
+
+function formatKm(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    !Number.isFinite(Number(value))
+  ) {
+    return "–";
+  }
+
+  return `${formatNumber(value)} km`;
+}
+
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+/* =========================================================
+   API
+========================================================= */
+
+async function apiRequest(params = {}) {
+
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== ""
+    ) {
+      query.set(key, String(value).trim());
     }
+
+  });
+
+  const response = await fetch(
+    `${API_URL}?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    }
+  );
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = {
+      success: false,
+      error: "Ungültige Antwort vom Server."
+    };
   }
 
-  function show(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove("hidden");
+  if (!response.ok || data?.success === false) {
+
+    throw new Error(
+      data?.error ||
+      data?.message ||
+      `Serverfehler (${response.status})`
+    );
+
   }
 
-  function hide(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add("hidden");
+  return data?.data ?? data;
+}
+
+
+/* =========================================================
+   STATUS
+========================================================= */
+
+function showStatus(id, message, type = "loading") {
+
+  const element = $(id);
+
+  if (!element) return;
+
+  element.className =
+    `api-status ${type}`;
+
+  element.textContent = message;
+}
+
+
+function hideStatus(id) {
+
+  const element = $(id);
+
+  if (!element) return;
+
+  element.classList.add("hidden");
+  element.textContent = "";
+}
+
+
+function showElement(id) {
+
+  const element = $(id);
+
+  if (element) {
+    element.classList.remove("hidden");
   }
+}
 
-  /* =======================================================
-     FORMATIERUNG
-  ======================================================= */
 
-  function euro(number) {
-    if (!Number.isFinite(Number(number))) return "–";
+function hideElement(id) {
 
-    return Number(number).toLocaleString("de-DE", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }) + " €";
+  const element = $(id);
+
+  if (element) {
+    element.classList.add("hidden");
   }
+}
 
-  function integer(number) {
-    if (!Number.isFinite(Number(number))) return "–";
 
-    return Number(number).toLocaleString("de-DE", {
-      maximumFractionDigits: 0
-    });
-  }
+/* =========================================================
+   TABS
+========================================================= */
 
-  function decimal(number, digits = 1) {
-    if (!Number.isFinite(Number(number))) return "–";
+function initMainTabs() {
 
-    return Number(number).toLocaleString("de-DE", {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits
-    });
-  }
+  const tabs =
+    document.querySelectorAll(".tabs .tab");
 
-  function years(number) {
-    if (!Number.isFinite(Number(number))) return "–";
+  const sections = [
+    "currentCarSection",
+    "newCarSection",
+    "savedSection"
+  ];
 
-    return Number(number).toLocaleString("de-DE", {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1
-    }) + " Jahre";
-  }
+  tabs.forEach(tab => {
 
-  /* =======================================================
-     LOCAL STORAGE
-  ======================================================= */
+    tab.addEventListener("click", () => {
 
-  function loadSavedCars() {
-    try {
-      const data = JSON.parse(
-        localStorage.getItem(STORAGE_KEY) || "[]"
+      const target =
+        tab.dataset.target;
+
+      tabs.forEach(t =>
+        t.classList.remove("active")
       );
 
-      return Array.isArray(data) ? data : [];
-    } catch {
-      return [];
-    }
-  }
+      tab.classList.add("active");
 
-  function saveCars() {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(state.savedCars)
-    );
-  }
+      sections.forEach(id => {
 
-  /* =======================================================
-     THEME
-  ======================================================= */
+        const section = $(id);
 
-  function initTheme() {
-    const savedTheme = localStorage.getItem(THEME_KEY);
+        if (!section) return;
 
-    if (savedTheme === "dark") {
-      document.documentElement.setAttribute("data-theme", "dark");
-    } else if (savedTheme === "light") {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else {
-      const prefersDark =
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-      document.documentElement.setAttribute(
-        "data-theme",
-        prefersDark ? "dark" : "light"
-      );
-    }
-
-    updateThemeButton();
-  }
-
-  function toggleTheme() {
-    const current =
-      document.documentElement.getAttribute("data-theme");
-
-    const next = current === "dark" ? "light" : "dark";
-
-    document.documentElement.setAttribute(
-      "data-theme",
-      next
-    );
-
-    localStorage.setItem(THEME_KEY, next);
-
-    updateThemeButton();
-  }
-
-  function updateThemeButton() {
-    const button =
-      document.getElementById("themeToggle");
-
-    if (!button) return;
-
-    const dark =
-      document.documentElement.getAttribute("data-theme") === "dark";
-
-    button.textContent = dark ? "☀️" : "🌙";
-    button.setAttribute(
-      "aria-label",
-      dark ? "Hellen Modus" : "Dunklen Modus"
-    );
-  }
-
-  /* =======================================================
-     EINGABEN ZURÜCKSETZEN
-  ======================================================= */
-
-  function resetInputs() {
-    const inputs = $$("input");
-
-    inputs.forEach(input => {
-      input.value = "";
-    });
-
-    $$("select").forEach(select => {
-      select.selectedIndex = 0;
-    });
-
-    state.currentVehicle = null;
-    state.comparisonVehicle = null;
-
-    $$(".result").forEach(result => {
-      result.classList.add("hidden");
-    });
-
-    $$(".vehicle-data").forEach(vehicle => {
-      vehicle.classList.add("hidden");
-    });
-
-    const statusElements = $$(".api-status");
-
-    statusElements.forEach(status => {
-      status.textContent = "";
-      status.className = "api-status hidden";
-    });
-
-    updateSavedCars();
-  }
-
-  /* =======================================================
-     TABS
-  ======================================================= */
-
-  function initTabs() {
-    $$(".tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        const target = tab.dataset.target;
-
-        if (!target) return;
-
-        $$(".tab").forEach(t =>
-          t.classList.remove("active")
-        );
-
-        tab.classList.add("active");
-
-        $$("[data-section]").forEach(section => {
+        if (id === target) {
+          section.classList.remove("hidden");
+        } else {
           section.classList.add("hidden");
-        });
+        }
 
-        const section =
-          document.querySelector(
-            `[data-section="${target}"]`
+      });
+
+    });
+
+  });
+
+}
+
+
+/* =========================================================
+   SUCH-TABS
+========================================================= */
+
+function initSearchTabs() {
+
+  document
+    .querySelectorAll(".search-tabs")
+    .forEach(container => {
+
+      const tabs =
+        container.querySelectorAll(".search-tab");
+
+      tabs.forEach(tab => {
+
+        tab.addEventListener("click", () => {
+
+          const panelId =
+            tab.dataset.panel;
+
+          tabs.forEach(t =>
+            t.classList.remove("active")
           );
 
-        if (section) {
-          section.classList.remove("hidden");
-        }
+          tab.classList.add("active");
+
+          const parent =
+            tab.closest(".vehicle-search");
+
+          if (!parent) return;
+
+          parent
+            .querySelectorAll(".search-panel")
+            .forEach(panel => {
+
+              if (panel.id === panelId) {
+                panel.classList.remove("hidden");
+              } else {
+                panel.classList.add("hidden");
+              }
+
+            });
+
+        });
+
       });
+
     });
+
+}
+
+
+/* =========================================================
+   DARK MODE
+========================================================= */
+
+function initTheme() {
+
+  const button =
+    $("themeToggle");
+
+  if (!button) return;
+
+  const saved =
+    localStorage.getItem("acc_theme");
+
+  if (saved === "dark") {
+    document.documentElement
+      .setAttribute("data-theme", "dark");
+
+    button.textContent = "☀️";
   }
 
-  /* =======================================================
-     API
-  ======================================================= */
+  button.addEventListener("click", () => {
 
-  async function searchVehicle({
-    hsn = "",
-    tsn = "",
-    brand = "",
-    model = ""
-  } = {}) {
+    const dark =
+      document.documentElement
+        .getAttribute("data-theme") === "dark";
 
-    const params = new URLSearchParams();
+    if (dark) {
 
-    if (hsn) params.set("hsn", hsn);
-    if (tsn) params.set("tsn", tsn);
-    if (brand) params.set("brand", brand);
-    if (model) params.set("model", model);
+      document.documentElement
+        .removeAttribute("data-theme");
 
-    if (!params.toString()) {
-      throw new Error(
-        "Bitte HSN/TSN oder Marke und Modell eingeben."
+      localStorage.setItem(
+        "acc_theme",
+        "light"
       );
+
+      button.textContent = "🌙";
+
+    } else {
+
+      document.documentElement
+        .setAttribute(
+          "data-theme",
+          "dark"
+        );
+
+      localStorage.setItem(
+        "acc_theme",
+        "dark"
+      );
+
+      button.textContent = "☀️";
+
     }
 
-    const response = await fetch(
-      `/api/vehicle-search?${params.toString()}`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json"
-        }
-      }
-    );
+  });
 
-    let data = null;
+}
 
-    try {
-      data = await response.json();
-    } catch {
-      throw new Error(
-        "Die API hat keine gültige Antwort geliefert."
-      );
-    }
 
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        `Fahrzeugsuche fehlgeschlagen (${response.status}).`
-      );
-    }
+/* =========================================================
+   SELECT HELFER
+========================================================= */
 
-    return data;
+function clearSelect(id, placeholder) {
+
+  const select = $(id);
+
+  if (!select) return;
+
+  select.innerHTML = "";
+
+  const option =
+    document.createElement("option");
+
+  option.value = "";
+  option.textContent = placeholder;
+
+  select.appendChild(option);
+
+  select.disabled = true;
+}
+
+
+function fillSelect(
+  id,
+  items,
+  placeholder,
+  valueKey = null,
+  labelKey = null
+) {
+
+  const select = $(id);
+
+  if (!select) return;
+
+  select.innerHTML = "";
+
+  const first =
+    document.createElement("option");
+
+  first.value = "";
+  first.textContent = placeholder;
+
+  select.appendChild(first);
+
+  if (!Array.isArray(items)) {
+    select.disabled = true;
+    return;
   }
 
-  /* =======================================================
-     API STATUS
-  ======================================================= */
+  items.forEach(item => {
 
-  function setApiStatus(id, message, type = "") {
-    const el = document.getElementById(id);
+    let value;
+    let label;
 
-    if (!el) return;
+    if (typeof item === "string") {
 
-    el.className =
-      "api-status" +
-      (type ? ` ${type}` : "");
+      value = item;
+      label = item;
 
-    if (!message) {
-      el.classList.add("hidden");
-      el.textContent = "";
+    } else {
+
+      value =
+        valueKey
+          ? item?.[valueKey]
+          : (
+              item?.id ??
+              item?.slug ??
+              item?.name ??
+              item?.value ??
+              item?.model ??
+              item?.brand
+            );
+
+      label =
+        labelKey
+          ? item?.[labelKey]
+          : (
+              item?.name ??
+              item?.label ??
+              item?.model ??
+              item?.brand ??
+              item?.title ??
+              value
+            );
+
+    }
+
+    if (
+      value === undefined ||
+      value === null ||
+      String(value).trim() === ""
+    ) {
       return;
     }
 
-    el.classList.remove("hidden");
-    el.textContent = message;
+    const option =
+      document.createElement("option");
+
+    option.value = value;
+    option.textContent = label ?? value;
+
+    select.appendChild(option);
+
+  });
+
+  select.disabled =
+    select.options.length <= 1;
+}
+
+
+/* =========================================================
+   API DATEN NORMALISIEREN
+========================================================= */
+
+function unwrapVehicle(data) {
+
+  if (!data) return null;
+
+  if (Array.isArray(data)) {
+
+    return data[0] || null;
+
   }
 
-  /* =======================================================
-     FAHRZEUGDATEN NORMALISIEREN
-  ======================================================= */
-
-  function normalizeVehicle(data) {
-
-    /*
-     CarAPI kann je nach Endpoint / Tarif
-     unterschiedliche Daten liefern.
-     Deshalb werden mehrere mögliche Feldnamen
-     berücksichtigt.
-    */
-
-    const vehicle =
-      data?.vehicle ||
-      data?.data?.vehicle ||
-      data?.data ||
-      data;
-
-    return {
-      hsn:
-        vehicle?.hsn ||
-        data?.hsn ||
-        "",
-
-      tsn:
-        vehicle?.tsn ||
-        data?.tsn ||
-        "",
-
-      brand:
-        vehicle?.brand ||
-        vehicle?.make ||
-        vehicle?.manufacturer ||
-        "",
-
-      model:
-        vehicle?.model ||
-        vehicle?.model_name ||
-        "",
-
-      display:
-        vehicle?.display_vehicle ||
-        vehicle?.displayVehicle ||
-        "",
-
-      years:
-        vehicle?.years ||
-        vehicle?.year_range ||
-        "",
-
-      year:
-        vehicle?.year ||
-        vehicle?.model_year ||
-        "",
-
-      ps:
-        vehicle?.ps ||
-        vehicle?.horsepower ||
-        vehicle?.hp ||
-        "",
-
-      kw:
-        vehicle?.kw ||
-        vehicle?.power_kw ||
-        "",
-
-      displacement:
-        vehicle?.displacement ||
-        vehicle?.engine_displacement ||
-        vehicle?.cc ||
-        "",
-
-      displacementL:
-        vehicle?.displacement_l ||
-        vehicle?.engine_displacement_l ||
-        "",
-
-      fuel:
-        vehicle?.fuel ||
-        vehicle?.fuel_type ||
-        "",
-
-      transmission:
-        vehicle?.transmission ||
-        "",
-
-      drive:
-        vehicle?.drive ||
-        vehicle?.drivetrain ||
-        "",
-
-      body:
-        vehicle?.body ||
-        vehicle?.body_type ||
-        "",
-
-      doors:
-        vehicle?.doors ||
-        "",
-
-      raw: data
-    };
+  if (data.vehicle) {
+    return unwrapVehicle(data.vehicle);
   }
 
-  /* =======================================================
-     FAHRZEUG-DARSTELLUNG
-  ======================================================= */
+  if (data.data) {
+    return unwrapVehicle(data.data);
+  }
 
-  function renderVehicle(vehicle, containerId) {
+  if (data.result) {
+    return unwrapVehicle(data.result);
+  }
 
-    const container =
-      document.getElementById(containerId);
+  if (data.results && Array.isArray(data.results)) {
+    return data.results[0] || null;
+  }
 
-    if (!container) return;
+  return data;
+}
 
-    const name =
-      [
-        vehicle.brand,
-        vehicle.model
-      ]
-      .filter(Boolean)
-      .join(" ") ||
-      vehicle.display ||
-      "Fahrzeug";
 
-    const specs = [];
+function findValue(object, keys) {
 
-    if (vehicle.year)
-      specs.push([
-        "Baujahr",
-        vehicle.year
-      ]);
+  if (!object || typeof object !== "object") {
+    return null;
+  }
 
-    if (vehicle.years)
-      specs.push([
-        "Bauzeit",
-        vehicle.years
-      ]);
-
-    if (vehicle.ps)
-      specs.push([
-        "Leistung",
-        `${integer(Number(vehicle.ps))} PS`
-      ]);
-
-    if (vehicle.kw)
-      specs.push([
-        "Leistung",
-        `${integer(Number(vehicle.kw))} kW`
-      ]);
-
-    if (vehicle.displacementL)
-      specs.push([
-        "Hubraum",
-        `${decimal(Number(vehicle.displacementL), 1)} l`
-      ]);
+  for (const key of keys) {
 
     if (
-      !vehicle.displacementL &&
-      vehicle.displacement
+      object[key] !== undefined &&
+      object[key] !== null &&
+      object[key] !== ""
     ) {
-      const cc = Number(vehicle.displacement);
-
-      specs.push([
-        "Hubraum",
-        Number.isFinite(cc)
-          ? `${decimal(cc / 1000, 1)} l`
-          : vehicle.displacement
-      ]);
+      return object[key];
     }
 
-    if (vehicle.fuel)
-      specs.push([
-        "Kraftstoff",
-        vehicle.fuel
-      ]);
+  }
 
-    if (vehicle.transmission)
-      specs.push([
-        "Getriebe",
-        vehicle.transmission
-      ]);
+  return null;
+}
 
-    if (vehicle.drive)
-      specs.push([
-        "Antrieb",
-        vehicle.drive
-      ]);
 
-    if (vehicle.body)
-      specs.push([
-        "Karosserie",
-        vehicle.body
-      ]);
+function normalizeVehicle(raw) {
 
-    if (vehicle.doors)
-      specs.push([
-        "Türen",
-        vehicle.doors
-      ]);
+  const vehicle =
+    unwrapVehicle(raw);
+
+  if (!vehicle) return null;
+
+  const brand =
+    findValue(vehicle, [
+      "brand",
+      "make",
+      "manufacturer",
+      "make_name"
+    ]);
+
+  const model =
+    findValue(vehicle, [
+      "model",
+      "model_name"
+    ]);
+
+  const generation =
+    findValue(vehicle, [
+      "generation",
+      "generation_name"
+    ]);
+
+  const engine =
+    findValue(vehicle, [
+      "engine",
+      "engine_name",
+      "engine_type"
+    ]);
+
+  const year =
+    findValue(vehicle, [
+      "year",
+      "model_year",
+      "production_year",
+      "registration_year"
+    ]);
+
+  const power =
+    findValue(vehicle, [
+      "power_ps",
+      "ps",
+      "hp",
+      "horsepower",
+      "power"
+    ]);
+
+  const displacement =
+    findValue(vehicle, [
+      "displacement_l",
+      "engine_displacement_l",
+      "displacement"
+    ]);
+
+  const fuel =
+    findValue(vehicle, [
+      "fuel",
+      "fuel_type",
+      "fuelType"
+    ]);
+
+  const transmission =
+    findValue(vehicle, [
+      "transmission",
+      "gearbox"
+    ]);
+
+  const hsn =
+    findValue(vehicle, [
+      "hsn"
+    ]);
+
+  const tsn =
+    findValue(vehicle, [
+      "tsn"
+    ]);
+
+  return {
+    raw: vehicle,
+    brand,
+    model,
+    generation,
+    engine,
+    year,
+    power,
+    displacement,
+    fuel,
+    transmission,
+    hsn,
+    tsn
+  };
+
+}
+
+
+/* =========================================================
+   FAHRZEUG ANZEIGEN
+========================================================= */
+
+function renderVehicle(
+  containerId,
+  vehicle
+) {
+
+  const container =
+    $(containerId);
+
+  if (!container) return;
+
+  if (!vehicle) {
 
     container.innerHTML = `
-      <div class="vehicle-header">
-        <div>
-          <small>GEFUNDENES FAHRZEUG</small>
-          <h3>${escapeHtml(name)}</h3>
-          <p>
-            ${
-              vehicle.display
-                ? escapeHtml(vehicle.display)
-                : "Fahrzeugdaten erfolgreich abgerufen"
-            }
-          </p>
-        </div>
-
-        <div class="vehicle-check">✓</div>
+      <div class="result red">
+        <strong>Kein Fahrzeug gefunden</strong>
+        <p>
+          Die API hat kein passendes Fahrzeug geliefert.
+        </p>
       </div>
-
-      ${
-        specs.length
-          ? `
-            <div class="vehicle-specs">
-              ${specs
-                .map(
-                  ([label, val]) => `
-                    <div>
-                      <strong>${escapeHtml(String(val))}</strong>
-                      <small>${escapeHtml(label)}</small>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-          : `
-            <div class="result">
-              <strong>Fahrzeug gefunden</strong>
-              <p>
-                Die API liefert für dieses Fahrzeug derzeit
-                keine weiteren technischen Spezifikationen.
-              </p>
-            </div>
-          `
-      }
     `;
 
     container.classList.remove("hidden");
+
+    return;
   }
 
-  /* =======================================================
-     ESCAPE HTML
-  ======================================================= */
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  /* =======================================================
-     AKTUELLES AUTO – FAHRZEUGSUCHE
-  ======================================================= */
-
-  async function searchCurrentVehicle() {
-
-    const hsn = value("currentHsn");
-    const tsn = value("currentTsn");
-    const brand = value("currentBrand");
-    const model = value("currentModel");
-
-    setApiStatus(
-      "currentApiStatus",
-      "Fahrzeug wird gesucht …",
-      "loading"
-    );
-
-    try {
-
-      const data = await searchVehicle({
-        hsn,
-        tsn,
-        brand,
-        model
-      });
-
-      const vehicle = normalizeVehicle(data);
-
-      state.currentVehicle = vehicle;
-
-      renderVehicle(
-        vehicle,
-        "currentVehicleData"
-      );
-
-      setApiStatus(
-        "currentApiStatus",
-        "Fahrzeug erfolgreich gefunden.",
-        "success"
-      );
-
-    } catch (error) {
-
-      setApiStatus(
-        "currentApiStatus",
-        error.message,
-        "error"
-      );
-
-    }
-  }
-
-  /* =======================================================
-     NEUES AUTO – FAHRZEUGSUCHE
-  ======================================================= */
-
-  async function searchComparisonVehicle() {
-
-    const hsn = value("newHsn");
-    const tsn = value("newTsn");
-    const brand = value("newBrand");
-    const model = value("newModel");
-
-    setApiStatus(
-      "newApiStatus",
-      "Fahrzeug wird gesucht …",
-      "loading"
-    );
-
-    try {
-
-      const data = await searchVehicle({
-        hsn,
-        tsn,
-        brand,
-        model
-      });
-
-      const vehicle = normalizeVehicle(data);
-
-      state.comparisonVehicle = vehicle;
-
-      renderVehicle(
-        vehicle,
-        "newVehicleData"
-      );
-
-      setApiStatus(
-        "newApiStatus",
-        "Fahrzeug erfolgreich gefunden.",
-        "success"
-      );
-
-    } catch (error) {
-
-      setApiStatus(
-        "newApiStatus",
-        error.message,
-        "error"
-      );
-
-    }
-  }
-
-  /* =======================================================
-     FAHRPROFIL
-  ======================================================= */
-
-  function getDrivingProfile() {
-
-    const kmYear =
-      numberValue("annualKm") ||
-      numberValue("currentAnnualKm");
-
-    const fuelPrice =
-      numberValue("fuelPrice");
-
-    const consumption =
-      numberValue("consumption");
-
-    return {
-      annualKm: kmYear,
-      fuelPrice,
-      consumption,
-      highway:
-        numberValue("highwayPercent"),
-
-      country:
-        value("country")
-    };
-  }
-
-  /* =======================================================
-     JÄHRLICHE KRAFTSTOFFKOSTEN
-  ======================================================= */
-
-  function calculateFuelCost(
-    annualKm,
-    consumption,
-    fuelPrice
-  ) {
-
-    if (
-      annualKm <= 0 ||
-      consumption <= 0 ||
-      fuelPrice <= 0
-    ) {
-      return 0;
-    }
-
-    return (
-      annualKm *
-      consumption /
-      100 *
-      fuelPrice
-    );
-  }
-
-  /* =======================================================
-     AKTUELLE AUTO DATEN
-  ======================================================= */
-
-  function getCurrentCarData() {
-
-    return {
-
-      purchasePrice:
-        numberValue("purchasePrice"),
-
-      purchaseKm:
-        numberValue("purchaseKm"),
-
-      purchaseDate:
-        value("purchaseDate"),
-
-      currentKm:
-        numberValue("currentKm"),
-
-      annualKm:
-        numberValue("annualKm") ||
-        numberValue("currentAnnualKm"),
-
-      consumption:
-        numberValue("consumption"),
-
-      insuranceMonthly:
-        numberValue("insuranceMonthly"),
-
-      taxYearly:
-        numberValue("taxYearly"),
-
-      repairCosts:
-        numberValue("repairCosts"),
-
-      currentValue:
-        numberValue("currentValue"),
-
-      fuelPrice:
-        numberValue("fuelPrice"),
-
-      name:
-        getVehicleName(state.currentVehicle)
-    };
-  }
-
-  /* =======================================================
-     NEUES AUTO DATEN
-  ======================================================= */
-
-  function getNewCarData() {
-
-    return {
-
-      purchasePrice:
-        numberValue("newPurchasePrice"),
-
-      purchaseKm:
-        numberValue("newPurchaseKm"),
-
-      firstRegistration:
-        value("newFirstRegistration"),
-
-      annualKm:
-        numberValue("newAnnualKm"),
-
-      consumption:
-        numberValue("newConsumption"),
-
-      insuranceMonthly:
-        numberValue("newInsuranceMonthly"),
-
-      taxYearly:
-        numberValue("newTaxYearly"),
-
-      currentValue:
-        numberValue("newCurrentValue"),
-
-      fuelPrice:
-        numberValue("newFuelPrice"),
-
-      name:
-        getVehicleName(
-          state.comparisonVehicle
-        )
-    };
-  }
-
-  function getVehicleName(vehicle) {
-
-    if (!vehicle) return "Fahrzeug";
-
-    return [
+  const title =
+    [
       vehicle.brand,
       vehicle.model
     ]
       .filter(Boolean)
-      .join(" ") || "Fahrzeug";
-  }
+      .join(" ");
 
-  /* =======================================================
-     FINANZIELLE HALTEKOSTEN
-  ======================================================= */
+  const subtitle =
+    [
+      vehicle.generation,
+      vehicle.engine
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
-  function annualFixedCosts(car) {
+  container.innerHTML = `
 
-    return (
-      car.insuranceMonthly * 12 +
-      car.taxYearly
-    );
-  }
+    <div class="vehicle-header">
 
-  function annualOperatingCosts(car) {
+      <div>
 
-    return (
-      calculateFuelCost(
-        car.annualKm,
-        car.consumption,
-        car.fuelPrice
-      ) +
-      annualFixedCosts(car)
-    );
-  }
+        <small>FAHRZEUG GEFUNDEN</small>
 
-  /* =======================================================
-     OPTIMALE HALTEDAUER
-     
-     Wichtig:
-     Es wird NICHT nur auf Reparaturkosten geschaut.
-     Auch ohne Reparaturkosten wird eine wirtschaftliche
-     Haltedauer anhand von Wertverlust und laufenden Kosten
-     geschätzt.
-  ======================================================= */
+        <h3>
+          ${escapeHtml(title || "Fahrzeug")}
+        </h3>
 
-  function calculateRecommendedHoldingPeriod(car) {
+        <p>
+          ${escapeHtml(subtitle || "Fahrzeugdaten")}
+        </p>
 
-    const annualKm =
-      car.annualKm > 0
-        ? car.annualKm
-        : 15000;
+      </div>
 
-    const currentKm =
-      car.currentKm > 0
-        ? car.currentKm
-        : car.purchaseKm;
+      <div class="vehicle-check">
+        ✓
+      </div>
 
-    const purchasePrice =
-      car.purchasePrice > 0
-        ? car.purchasePrice
-        : 0;
+    </div>
 
-    const currentValue =
-      car.currentValue > 0
-        ? car.currentValue
-        : Math.max(
-            purchasePrice * 0.35,
-            1000
-          );
 
-    const repairCosts =
-      Math.max(0, car.repairCosts || 0);
+    <div class="vehicle-specs">
 
-    /*
-      Bei einem älteren günstigen Auto ist ein gewisser
-      Reparaturpuffer wirtschaftlich sinnvoll.
-
-      Es gibt bewusst keine harte Grenze wie
-      "Reparatur > 50 % des Kaufpreises = verkaufen".
-      Der ursprüngliche Kaufpreis ist bereits versunken.
-    */
-
-    const annualRunning =
-      annualOperatingCosts(car);
-
-    /*
-      Geschätzter Wertverlust pro Jahr.
-      Bei günstigen älteren Autos fällt er geringer aus.
-    */
-
-    const depreciationRate =
-      currentValue <= 4000
-        ? 0.10
-        : currentValue <= 8000
-          ? 0.12
-          : 0.15;
-
-    let estimatedValue = currentValue;
-
-    let recommendedYears = 5;
-
-    for (let year = 1; year <= 10; year++) {
-
-      const mileage =
-        currentKm +
-        annualKm * year;
-
-      /*
-        Wertverlust
-      */
-
-      estimatedValue *=
-        1 - depreciationRate;
-
-      /*
-        Zusätzlicher Kilometerabschlag
-        bei sehr hoher Laufleistung.
-      */
-
-      let mileagePenalty = 0;
-
-      if (mileage > 200000) {
-        mileagePenalty +=
-          (mileage - 200000) *
-          0.015;
-      }
-
-      if (mileage > 250000) {
-        mileagePenalty +=
-          (mileage - 250000) *
-          0.025;
-      }
-
-      const estimatedFutureValue =
-        Math.max(
-          500,
-          estimatedValue -
-          mileagePenalty
-        );
-
-      /*
-        Reparaturkosten werden nur dann
-        berücksichtigt, wenn der Benutzer
-        tatsächlich welche eingegeben hat.
-      */
-
-      const repairPenalty =
-        repairCosts > 0
-          ? repairCosts / year
-          : 0;
-
-      const effectiveAnnualCost =
-        annualRunning +
-        repairPenalty;
-
-      /*
-        Ab einem sehr hohen Kilometerstand
-        steigt das Risiko stärker.
-      */
-
-      const risk =
-        mileage >= 250000
-          ? 1.25
-          : mileage >= 220000
-            ? 1.10
-            : 1;
-
-      const score =
-        effectiveAnnualCost *
-        risk;
-
-      /*
-        Solange der wirtschaftliche Betrieb
-        noch vernünftig ist, wird weitergefahren.
-      */
-
-      if (
-        score <
-        Math.max(
-          3500,
-          currentValue * 0.55
-        )
-      ) {
-        recommendedYears = year;
-      } else {
-        break;
-      }
-
-      /*
-        Bei extrem hohen Laufleistungen
-        nicht künstlich weiterrechnen.
-      */
-
-      if (mileage >= 280000) {
-        recommendedYears = year;
-        break;
-      }
-    }
-
-    const recommendedKm =
-      currentKm +
-      annualKm * recommendedYears;
-
-    return {
-      years: recommendedYears,
-      km: recommendedKm,
-      currentKm,
-      annualKm,
-      annualRunning
-    };
-  }
-
-  /* =======================================================
-     REPARATURPRÜFUNG
-  ======================================================= */
-
-  function evaluateRepair(car) {
-
-    const repair =
-      Number(car.repairCosts || 0);
-
-    if (!repair || repair <= 0) {
-
-      return {
-        status: "neutral",
-        title: "Keine Reparaturkosten angegeben",
-        text:
-          "Du kannst das Fahrzeug auch ohne konkrete Reparaturkosten wirtschaftlich bewerten."
-      };
-    }
-
-    const value =
-      car.currentValue > 0
-        ? car.currentValue
-        : Math.max(
-            car.purchasePrice * 0.35,
-            1000
-          );
-
-    const ratio =
-      repair / value;
-
-    if (ratio <= 0.25) {
-
-      return {
-        status: "green",
-        title: "Reparatur spricht eher für das Behalten",
-        text:
-          `Die Reparatur von ${euro(repair)} entspricht nur etwa ${decimal(ratio * 100, 0)} % des aktuellen Fahrzeugwerts.`
-      };
-
-    }
-
-    if (ratio <= 0.50) {
-
-      return {
-        status: "amber",
-        title: "Reparatur ist wirtschaftlich abwägbar",
-        text:
-          `Die Reparatur von ${euro(repair)} entspricht etwa ${decimal(ratio * 100, 0)} % des aktuellen Fahrzeugwerts.`
-      };
-
-    }
-
-    return {
-      status: "red",
-      title: "Verkauf sollte geprüft werden",
-      text:
-        `Die Reparatur von ${euro(repair)} ist im Verhältnis zum aktuellen Fahrzeugwert relativ hoch.`
-    };
-  }
-
-  /* =======================================================
-     AKTUELLES AUTO BERECHNEN
-  ======================================================= */
-
-  function calculateCurrentCar() {
-
-    const car = getCurrentCarData();
-
-    if (
-      !car.purchasePrice ||
-      !car.currentKm ||
-      !car.annualKm ||
-      !car.consumption
-    ) {
-
-      alert(
-        "Bitte fülle mindestens Kaufpreis, aktuellen Kilometerstand, jährliche Fahrleistung und Verbrauch aus."
-      );
-
-      return;
-    }
-
-    const holding =
-      calculateRecommendedHoldingPeriod(car);
-
-    const repair =
-      evaluateRepair(car);
-
-    const fuel =
-      calculateFuelCost(
-        car.annualKm,
-        car.consumption,
-        car.fuelPrice
-      );
-
-    renderCurrentResult(
-      car,
-      holding,
-      repair,
-      fuel
-    );
-  }
-
-  /* =======================================================
-     AKTUELLES ERGEBNIS
-  ======================================================= */
-
-  function renderCurrentResult(
-    car,
-    holding,
-    repair,
-    fuel
-  ) {
-
-    const result =
-      document.getElementById(
-        "currentResult"
-      );
-
-    if (!result) return;
-
-    result.className =
-      `result ${repair.status || ""}`;
-
-    result.innerHTML = `
-      <strong>
-        ${
-          holding.years <= 2
-            ? "Ein Wechsel kann bereits sinnvoll sein"
-            : `Voraussichtlich noch etwa ${holding.years} Jahre fahren`
-        }
-      </strong>
-
-      <p>
-        Wirtschaftlich sinnvoller Zielbereich:
-        ungefähr
+      <div>
         <strong>
-          ${integer(holding.km)} km
-        </strong>.
-      </p>
-
-      <div class="metrics">
-
-        <div>
-          <b>${years(holding.years)}</b>
-          <small>empfohlene Resthaltedauer</small>
-        </div>
-
-        <div>
-          <b>${integer(holding.km)} km</b>
-          <small>empfohlener Kilometerstand</small>
-        </div>
-
-        <div>
-          <b>${euro(fuel)}</b>
-          <small>Kraftstoffkosten / Jahr</small>
-        </div>
-
+          ${escapeHtml(
+            vehicle.year ?? "–"
+          )}
+        </strong>
+        <small>Baujahr</small>
       </div>
 
-      <div class="section-divider"></div>
-
-      <strong>
-        ${escapeHtml(repair.title)}
-      </strong>
-
-      <p>
-        ${escapeHtml(repair.text)}
-      </p>
-    `;
-
-    result.classList.remove("hidden");
-  }
-
-  /* =======================================================
-     NEUES AUTO BERECHNEN
-  ======================================================= */
-
-  function calculateNewCar() {
-
-    const oldCar =
-      getCurrentCarData();
-
-    const newCar =
-      getNewCarData();
-
-    if (
-      !newCar.purchasePrice ||
-      !newCar.purchaseKm ||
-      !newCar.annualKm ||
-      !newCar.consumption
-    ) {
-
-      alert(
-        "Bitte fülle beim neuen Auto mindestens Kaufpreis, Kilometerstand, jährliche Fahrleistung und Verbrauch aus."
-      );
-
-      return;
-    }
-
-    /*
-      Wenn beim aktuellen Auto noch keine Daten
-      vorhanden sind, wird trotzdem ein Vergleich
-      des neuen Autos angezeigt.
-    */
-
-    const oldAnnual =
-      annualOperatingCosts(oldCar);
-
-    const newAnnual =
-      annualOperatingCosts(newCar);
-
-    const annualSaving =
-      oldAnnual - newAnnual;
-
-    const additionalPurchaseCost =
-      Math.max(
-        0,
-        newCar.purchasePrice -
-        (oldCar.currentValue || 0)
-      );
-
-    const breakEven =
-      annualSaving > 0
-        ? additionalPurchaseCost /
-          annualSaving
-        : Infinity;
-
-    renderNewCarResult(
-      oldCar,
-      newCar,
-      annualSaving,
-      additionalPurchaseCost,
-      breakEven
-    );
-  }
-
-  /* =======================================================
-     NEUES AUTO ERGEBNIS
-  ======================================================= */
-
-  function renderNewCarResult(
-    oldCar,
-    newCar,
-    annualSaving,
-    additionalPurchaseCost,
-    breakEven
-  ) {
-
-    const result =
-      document.getElementById(
-        "newResult"
-      );
-
-    if (!result) return;
-
-    let status = "amber";
-    let title =
-      "Der Mehrwert sollte genau geprüft werden.";
-
-    if (
-      annualSaving > 0 &&
-      breakEven <= 5
-    ) {
-
-      status = "green";
-
-      title =
-        "Das neue Auto kann sich wirtschaftlich lohnen.";
-
-    } else if (
-      annualSaving <= 0
-    ) {
-
-      status = "red";
-
-      title =
-        "Finanziell bringt das neue Auto voraussichtlich keinen Vorteil.";
-
-    }
-
-    result.className =
-      `result ${status}`;
-
-    result.innerHTML = `
-
-      <strong>${title}</strong>
-
-      <p>
-        ${
-          annualSaving > 0
-            ? `Geschätzte jährliche Ersparnis:
-               <strong>${euro(annualSaving)}</strong>.`
-            : `Geschätzte Mehrkosten pro Jahr:
-               <strong>${euro(Math.abs(annualSaving))}</strong>.`
-        }
-      </p>
-
-      <div class="metrics">
-
-        <div>
-          <b>
-            ${
-              Number.isFinite(breakEven)
-                ? years(breakEven)
-                : "–"
-            }
-          </b>
-          <small>Amortisationszeit</small>
-        </div>
-
-        <div>
-          <b>${euro(additionalPurchaseCost)}</b>
-          <small>zusätzlicher Kapitaleinsatz</small>
-        </div>
-
-        <div>
-          <b>${euro(Math.abs(annualSaving))}</b>
-          <small>jährlicher Kostenunterschied</small>
-        </div>
-
+      <div>
+        <strong>
+          ${escapeHtml(
+            vehicle.power
+              ? formatNumber(vehicle.power)
+              : "–"
+          )}
+          ${vehicle.power ? " PS" : ""}
+        </strong>
+        <small>Leistung</small>
       </div>
-    `;
 
-    result.classList.remove("hidden");
+      <div>
+        <strong>
+          ${escapeHtml(
+            vehicle.displacement
+              ? formatNumber(
+                  vehicle.displacement,
+                  1
+                )
+              : "–"
+          )}
+          ${vehicle.displacement ? " L" : ""}
+        </strong>
+        <small>Hubraum</small>
+      </div>
+
+      <div>
+        <strong>
+          ${escapeHtml(
+            vehicle.fuel || "–"
+          )}
+        </strong>
+        <small>Kraftstoff</small>
+      </div>
+
+    </div>
+  `;
+
+  container.classList.remove("hidden");
+}
+
+
+/* =========================================================
+   FAHRZEUG SPEICHERN
+========================================================= */
+
+let currentVehicle = null;
+let newVehicle = null;
+
+
+/* =========================================================
+   HSN / TSN SUCHE
+========================================================= */
+
+async function searchVehicleByHsn(
+  prefix
+) {
+
+  const hsn =
+    $(`${prefix}Hsn`)?.value.trim();
+
+  const tsn =
+    $(`${prefix}Tsn`)?.value.trim();
+
+  const statusId =
+    `${prefix}ApiStatus`;
+
+  const vehicleDataId =
+    `${prefix}VehicleData`;
+
+  if (!hsn || !tsn) {
+
+    showStatus(
+      statusId,
+      "Bitte HSN und TSN eingeben.",
+      "error"
+    );
+
+    return;
   }
 
-  /* =======================================================
-     AUTOS SPEICHERN
-  ======================================================= */
+  showStatus(
+    statusId,
+    "Fahrzeug wird gesucht …",
+    "loading"
+  );
 
-  function saveCurrentCar() {
+  hideElement(vehicleDataId);
 
-    const car =
-      getCurrentCarData();
+  try {
+
+    const data =
+      await apiRequest({
+        action: "vehicle",
+        hsn,
+        tsn
+      });
+
+    const vehicle =
+      normalizeVehicle(data);
+
+    if (prefix === "current") {
+      currentVehicle = vehicle;
+    } else {
+      newVehicle = vehicle;
+    }
+
+    renderVehicle(
+      vehicleDataId,
+      vehicle
+    );
+
+    showStatus(
+      statusId,
+      "Fahrzeug erfolgreich gefunden.",
+      "success"
+    );
+
+  } catch (error) {
+
+    showStatus(
+      statusId,
+      error.message,
+      "error"
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   MARKEN LADEN
+========================================================= */
+
+async function loadBrands(
+  prefix
+) {
+
+  const select =
+    $(`${prefix}BrandSelect`);
+
+  if (!select) return;
+
+  try {
+
+    const data =
+      await apiRequest({
+        action: "brands"
+      });
+
+    let brands = data;
 
     if (
-      !car.purchasePrice &&
-      !car.currentKm &&
-      !state.currentVehicle
+      !Array.isArray(brands) &&
+      Array.isArray(data?.brands)
     ) {
-
-      alert(
-        "Bitte gib zuerst ein Fahrzeug ein."
-      );
-
-      return;
+      brands = data.brands;
     }
 
-    const saved = {
-
-      id:
-        Date.now().toString(),
-
-      created:
-        new Date().toISOString(),
-
-      vehicle:
-        state.currentVehicle,
-
-      data:
-        car
-    };
-
-    state.savedCars.unshift(saved);
-
-    saveCars();
-
-    updateSavedCars();
-
-    alert(
-      "Fahrzeug wurde gespeichert."
+    fillSelect(
+      `${prefix}BrandSelect`,
+      brands,
+      "Marke auswählen"
     );
+
+  } catch (error) {
+
+    console.error(
+      "Marken konnten nicht geladen werden:",
+      error
+    );
+
   }
 
-  function deleteSavedCar(id) {
+}
 
-    state.savedCars =
-      state.savedCars.filter(
-        car => car.id !== id
-      );
 
-    saveCars();
+/* =========================================================
+   MODELLE LADEN
+========================================================= */
 
-    updateSavedCars();
-  }
+async function loadModels(
+  prefix
+) {
 
-  function loadSavedCar(id) {
+  const brand =
+    $(`${prefix}BrandSelect`)?.value;
 
-    const saved =
-      state.savedCars.find(
-        car => car.id === id
-      );
+  clearSelect(
+    `${prefix}ModelSelect`,
+    "Modell auswählen"
+  );
 
-    if (!saved) return;
+  clearSelect(
+    `${prefix}GenerationSelect`,
+    "Typ / Generation auswählen"
+  );
 
-    const car = saved.data;
+  clearSelect(
+    `${prefix}EngineSelect`,
+    "Motorisierung auswählen"
+  );
 
-    setValue(
-      "purchasePrice",
-      car.purchasePrice || ""
-    );
+  if (!brand) return;
 
-    setValue(
-      "purchaseKm",
-      car.purchaseKm || ""
-    );
+  try {
 
-    setValue(
-      "purchaseDate",
-      car.purchaseDate || ""
-    );
+    const data =
+      await apiRequest({
+        action: "models",
+        brand
+      });
 
-    setValue(
-      "currentKm",
-      car.currentKm || ""
-    );
+    let models = data;
 
-    setValue(
-      "annualKm",
-      car.annualKm || ""
-    );
-
-    setValue(
-      "consumption",
-      car.consumption || ""
-    );
-
-    setValue(
-      "insuranceMonthly",
-      car.insuranceMonthly || ""
-    );
-
-    setValue(
-      "taxYearly",
-      car.taxYearly || ""
-    );
-
-    setValue(
-      "repairCosts",
-      car.repairCosts || ""
-    );
-
-    setValue(
-      "currentValue",
-      car.currentValue || ""
-    );
-
-    setValue(
-      "fuelPrice",
-      car.fuelPrice || ""
-    );
-
-    state.currentVehicle =
-      saved.vehicle || null;
-
-    if (state.currentVehicle) {
-
-      renderVehicle(
-        state.currentVehicle,
-        "currentVehicleData"
-      );
-    }
-  }
-
-  function updateSavedCars() {
-
-    const container =
-      document.getElementById(
-        "savedCars"
-      );
-
-    if (!container) return;
-
-    if (!state.savedCars.length) {
-
-      container.innerHTML = `
-        <div class="saved">
-          <div>
-            <strong>Noch keine gespeicherten Fahrzeuge</strong>
-            <small>
-              Gespeicherte Fahrzeuge erscheinen hier.
-            </small>
-          </div>
-        </div>
-      `;
-
-      return;
+    if (
+      !Array.isArray(models) &&
+      Array.isArray(data?.models)
+    ) {
+      models = data.models;
     }
 
-    container.innerHTML =
-      state.savedCars
-        .map(saved => {
+    fillSelect(
+      `${prefix}ModelSelect`,
+      models,
+      "Modell auswählen"
+    );
 
-          const name =
-            getVehicleName(
-              saved.vehicle
-            ) !== "Fahrzeug"
-              ? getVehicleName(saved.vehicle)
-              : saved.data.name || "Fahrzeug";
+  } catch (error) {
 
-          return `
-            <div class="saved">
+    console.error(
+      "Modelle konnten nicht geladen werden:",
+      error
+    );
 
-              <div>
-                <strong>
-                  ${escapeHtml(name)}
-                </strong>
-
-                <small>
-                  ${
-                    saved.data.currentKm
-                      ? integer(saved.data.currentKm) + " km"
-                      : "Kilometerstand nicht angegeben"
-                  }
-                </small>
-              </div>
-
-              <div class="actions">
-
-                <button
-                  class="btn white"
-                  data-load-car="${escapeHtml(saved.id)}"
-                  type="button"
-                >
-                  Laden
-                </button>
-
-                <button
-                  class="btn white danger"
-                  data-delete-car="${escapeHtml(saved.id)}"
-                  type="button"
-                >
-                  Löschen
-                </button>
-
-              </div>
-
-            </div>
-          `;
-        })
-        .join("");
-
-    $$("[data-load-car]").forEach(button => {
-
-      button.addEventListener(
-        "click",
-        () =>
-          loadSavedCar(
-            button.dataset.loadCar
-          )
-      );
-    });
-
-    $$("[data-delete-car]").forEach(button => {
-
-      button.addEventListener(
-        "click",
-        () =>
-          deleteSavedCar(
-            button.dataset.deleteCar
-          )
-      );
-    });
   }
 
-  /* =======================================================
-     MARKEN / MODELLE
-     
-     Diese Funktion funktioniert auch dann,
-     wenn die API eine Liste von Marken oder Modellen
-     zurückliefert.
-  ======================================================= */
+}
 
-  function fillSelect(
-    select,
-    items,
-    placeholder = "Bitte auswählen"
+
+/* =========================================================
+   GENERATIONEN LADEN
+========================================================= */
+
+async function loadGenerations(
+  prefix
+) {
+
+  const brand =
+    $(`${prefix}BrandSelect`)?.value;
+
+  const model =
+    $(`${prefix}ModelSelect`)?.value;
+
+  clearSelect(
+    `${prefix}GenerationSelect`,
+    "Typ / Generation auswählen"
+  );
+
+  clearSelect(
+    `${prefix}EngineSelect`,
+    "Motorisierung auswählen"
+  );
+
+  if (!brand || !model) return;
+
+  try {
+
+    const data =
+      await apiRequest({
+        action: "generations",
+        brand,
+        model
+      });
+
+    let generations = data;
+
+    if (
+      !Array.isArray(generations) &&
+      Array.isArray(data?.generations)
+    ) {
+      generations =
+        data.generations;
+    }
+
+    fillSelect(
+      `${prefix}GenerationSelect`,
+      generations,
+      "Typ / Generation auswählen"
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Generationen konnten nicht geladen werden:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   MOTOREN LADEN
+========================================================= */
+
+async function loadEngines(
+  prefix
+) {
+
+  const brand =
+    $(`${prefix}BrandSelect`)?.value;
+
+  const model =
+    $(`${prefix}ModelSelect`)?.value;
+
+  const generation =
+    $(`${prefix}GenerationSelect`)?.value;
+
+  clearSelect(
+    `${prefix}EngineSelect`,
+    "Motorisierung auswählen"
+  );
+
+  if (
+    !brand ||
+    !model ||
+    !generation
+  ) {
+    return;
+  }
+
+  try {
+
+    const data =
+      await apiRequest({
+        action: "engines",
+        brand,
+        model,
+        generation
+      });
+
+    let engines = data;
+
+    if (
+      !Array.isArray(engines) &&
+      Array.isArray(data?.engines)
+    ) {
+      engines =
+        data.engines;
+    }
+
+    fillSelect(
+      `${prefix}EngineSelect`,
+      engines,
+      "Motorisierung auswählen"
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Motorisierungen konnten nicht geladen werden:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   FAHRZEUG ÜBER MODELL AUSWÄHLEN
+========================================================= */
+
+async function selectVehicleByModel(
+  prefix
+) {
+
+  const brand =
+    $(`${prefix}BrandSelect`)?.value;
+
+  const model =
+    $(`${prefix}ModelSelect`)?.value;
+
+  const generation =
+    $(`${prefix}GenerationSelect`)?.value;
+
+  const engine =
+    $(`${prefix}EngineSelect`)?.value;
+
+  const statusId =
+    `${prefix}ApiStatus`;
+
+  const vehicleDataId =
+    `${prefix}VehicleData`;
+
+  if (!brand || !model) {
+
+    showStatus(
+      statusId,
+      "Bitte mindestens Marke und Modell auswählen.",
+      "error"
+    );
+
+    return;
+  }
+
+  showStatus(
+    statusId,
+    "Fahrzeug wird geladen …",
+    "loading"
+  );
+
+  try {
+
+    const data =
+      await apiRequest({
+        action: "vehicles",
+        brand,
+        model,
+        generation,
+        engine
+      });
+
+    const vehicle =
+      normalizeVehicle(data);
+
+    if (prefix === "current") {
+      currentVehicle = vehicle;
+    } else {
+      newVehicle = vehicle;
+    }
+
+    renderVehicle(
+      vehicleDataId,
+      vehicle
+    );
+
+    showStatus(
+      statusId,
+      "Fahrzeug erfolgreich ausgewählt.",
+      "success"
+    );
+
+  } catch (error) {
+
+    showStatus(
+      statusId,
+      error.message,
+      "error"
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   FAHRZEUGWERT SCHÄTZEN
+========================================================= */
+
+function estimateVehicleValue(
+  purchasePrice,
+  purchaseKm,
+  currentKm
+) {
+
+  if (
+    !purchasePrice ||
+    purchasePrice <= 0
+  ) {
+    return null;
+  }
+
+  const kmDifference =
+    Math.max(
+      0,
+      (currentKm || purchaseKm || 0) -
+      (purchaseKm || 0)
+    );
+
+  /*
+   * Grobe Modellrechnung.
+   * Der Wert wird bewusst nicht als Marktpreis
+   * dargestellt.
+   */
+
+  const depreciation =
+    Math.min(
+      0.75,
+      kmDifference / 250000 * 0.55
+    );
+
+  return Math.max(
+    500,
+    purchasePrice * (1 - depreciation)
+  );
+
+}
+
+
+/* =========================================================
+   HALTEDAUER BERECHNEN
+========================================================= */
+
+function calculateRecommendedHolding(
+  data
+) {
+
+  const {
+    purchasePrice,
+    purchaseKm,
+    currentKm,
+    annualKm,
+    consumption,
+    fuelPrice,
+    insurance,
+    tax
+  } = data;
+
+  if (
+    !purchasePrice ||
+    !currentKm ||
+    !annualKm ||
+    annualKm <= 0
   ) {
 
-    if (!select) return;
+    return null;
 
-    select.innerHTML = `
-      <option value="">
-        ${escapeHtml(placeholder)}
-      </option>
-    `;
-
-    if (!Array.isArray(items)) return;
-
-    items.forEach(item => {
-
-      const option =
-        document.createElement("option");
-
-      if (
-        typeof item === "string"
-      ) {
-
-        option.value = item;
-        option.textContent = item;
-
-      } else {
-
-        option.value =
-          item.value ||
-          item.id ||
-          item.name ||
-          "";
-
-        option.textContent =
-          item.label ||
-          item.name ||
-          item.model ||
-          item.value ||
-          "";
-      }
-
-      if (option.value) {
-        select.appendChild(option);
-      }
-    });
   }
 
-  /* =======================================================
-     MODELL AUS MARKENWAHL
-     
-     Falls deine API hierfür einen separaten
-     Endpoint besitzt, kann die Funktion später
-     direkt darauf zugreifen.
-  ======================================================= */
-
-  async function loadModelsForBrand(
-    brand,
-    prefix
-  ) {
-
-    if (!brand) return;
-
-    const modelSelect =
-      document.getElementById(
-        `${prefix}Model`
-      );
-
-    if (!modelSelect) return;
-
-    modelSelect.disabled = true;
-
-    modelSelect.innerHTML =
-      `<option value="">Modelle werden geladen …</option>`;
-
-    try {
-
-      const data =
-        await searchVehicle({
-          brand
-        });
-
-      const models =
-        data?.models ||
-        data?.data?.models ||
-        [];
-
-      if (Array.isArray(models) && models.length) {
-
-        fillSelect(
-          modelSelect,
-          models,
-          "Modell auswählen"
-        );
-
-      } else {
-
-        modelSelect.innerHTML =
-          `<option value="">
-            Modell manuell eingeben
-          </option>`;
-      }
-
-    } catch {
-
-      modelSelect.innerHTML =
-        `<option value="">
-          Modell manuell eingeben
-        </option>`;
-
-    } finally {
-
-      modelSelect.disabled = false;
-    }
-  }
-
-  /* =======================================================
-     EVENTS
-  ======================================================= */
-
-  function bindClick(
-    ids,
-    handler
-  ) {
-
-    ids.forEach(id => {
-
-      const el =
-        document.getElementById(id);
-
-      if (!el) return;
-
-      el.addEventListener(
-        "click",
-        event => {
-          event.preventDefault();
-          handler();
-        }
-      );
-    });
-  }
-
-  function initEvents() {
-
-    bindClick(
-      ["themeToggle"],
-      toggleTheme
+  const kmDriven =
+    Math.max(
+      0,
+      currentKm - (purchaseKm || currentKm)
     );
 
-    bindClick(
-      ["resetButton", "resetInputs"],
-      resetInputs
-    );
+  /*
+   * Wir betrachten nicht nur den Kaufpreis,
+   * sondern die zukünftigen Kosten.
+   */
 
-    bindClick(
-      [
-        "searchCurrentVehicle",
-        "currentVehicleSearch"
-      ],
-      searchCurrentVehicle
-    );
+  const fuelPerYear =
+    consumption &&
+    fuelPrice
+      ? annualKm / 100 *
+        consumption *
+        fuelPrice
+      : 0;
 
-    bindClick(
-      [
-        "searchNewVehicle",
-        "newVehicleSearch"
-      ],
-      searchComparisonVehicle
-    );
+  const fixedPerYear =
+    (insurance || 0) * 12 +
+    (tax || 0);
 
-    bindClick(
-      [
-        "calculateCurrent",
-        "calculateButton"
-      ],
-      calculateCurrentCar
-    );
+  const annualRunningCost =
+    fuelPerYear +
+    fixedPerYear;
 
-    bindClick(
-      [
-        "calculateNew",
-        "calculateNewButton",
-        "newCalculate"
-      ],
-      calculateNewCar
-    );
+  /*
+   * Mit zunehmender Laufleistung steigt das
+   * Reparatur-/Ausfallrisiko. Das Modell soll
+   * eine Entscheidungshilfe sein, keine
+   * technische Prognose.
+   */
 
-    bindClick(
-      [
-        "saveCurrent",
-        "saveCarButton",
-        "saveVehicle"
-      ],
-      saveCurrentCar
-    );
+  let recommendedYears = 5;
 
-    /*
-      Markenänderung
-    */
-
-    const currentBrand =
-      document.getElementById(
-        "currentBrand"
-      );
-
-    if (currentBrand) {
-
-      currentBrand.addEventListener(
-        "change",
-        () =>
-          loadModelsForBrand(
-            currentBrand.value,
-            "current"
-          )
-      );
-    }
-
-    const newBrand =
-      document.getElementById(
-        "newBrand"
-      );
-
-    if (newBrand) {
-
-      newBrand.addEventListener(
-        "change",
-        () =>
-          loadModelsForBrand(
-            newBrand.value,
-            "new"
-          )
-      );
-    }
-  }
-
-  /* =======================================================
-     INITIALISIERUNG
-  ======================================================= */
-
-  function init() {
-
-    initTheme();
-
-    initTabs();
-
-    initEvents();
-
-    updateSavedCars();
-
-    /*
-      KEINE Beispielwerte!
-      Alle Eingabefelder bleiben bewusst leer.
-    */
+  if (currentKm >= 220000) {
+    recommendedYears = 2;
+  } else if (currentKm >= 190000) {
+    recommendedYears = 3;
+  } else if (currentKm >= 160000) {
+    recommendedYears = 4;
+  } else if (currentKm >= 130000) {
+    recommendedYears = 5;
+  } else {
+    recommendedYears = 6;
   }
 
   if (
-    document.readyState === "loading"
+    annualRunningCost > 3500
+  ) {
+    recommendedYears -= 1;
+  }
+
+  recommendedYears =
+    Math.max(
+      1,
+      Math.min(
+        8,
+        recommendedYears
+      )
+    );
+
+  const recommendedKm =
+    currentKm +
+    annualKm *
+    recommendedYears;
+
+  const annualValueLoss =
+    purchasePrice *
+    0.08;
+
+  const estimatedTotalAnnualCost =
+    annualRunningCost +
+    annualValueLoss;
+
+  return {
+    recommendedYears,
+    recommendedKm,
+    annualRunningCost,
+    estimatedTotalAnnualCost,
+    kmDriven
+  };
+
+}
+
+
+/* =========================================================
+   AKTUELLES AUTO BERECHNEN
+========================================================= */
+
+function calculateCurrent() {
+
+  const purchasePrice =
+    numberValue("currentPurchasePrice");
+
+  const purchaseKm =
+    numberValue("currentPurchaseKm");
+
+  const currentKm =
+    numberValue("currentKm");
+
+  const annualKm =
+    numberValue("currentAnnualKm");
+
+  const consumption =
+    numberValue("currentConsumption");
+
+  const fuelPrice =
+    numberValue("currentFuelPrice");
+
+  const insurance =
+    numberValue("currentInsurance");
+
+  const tax =
+    numberValue("currentTax");
+
+  const repairCost =
+    numberValue("currentRepairCost");
+
+  const vehicleValueInput =
+    numberValue("currentValue");
+
+  if (
+    purchasePrice === null ||
+    purchaseKm === null ||
+    currentKm === null ||
+    annualKm === null ||
+    consumption === null ||
+    fuelPrice === null
   ) {
 
-    document.addEventListener(
-      "DOMContentLoaded",
-      init
+    const result =
+      $("currentResult");
+
+    result.className =
+      "result red";
+
+    result.innerHTML = `
+      <strong>Angaben fehlen</strong>
+      <p>
+        Bitte fülle mindestens Kaufpreis,
+        Kilometerstände, Fahrleistung,
+        Verbrauch und Kraftstoffpreis aus.
+      </p>
+    `;
+
+    return;
+
+  }
+
+  const holding =
+    calculateRecommendedHolding({
+      purchasePrice,
+      purchaseKm,
+      currentKm,
+      annualKm,
+      consumption,
+      fuelPrice,
+      insurance,
+      tax
+    });
+
+  const estimatedValue =
+    vehicleValueInput ??
+    estimateVehicleValue(
+      purchasePrice,
+      purchaseKm,
+      currentKm
     );
+
+  let repairHtml = "";
+
+  if (
+    repairCost !== null &&
+    repairCost > 0
+  ) {
+
+    if (
+      estimatedValue !== null &&
+      repairCost <=
+        estimatedValue * 0.35
+    ) {
+
+      repairHtml = `
+        <div class="result green">
+          <strong>Reparatur eher sinnvoll</strong>
+          <p>
+            ${formatEuro(repairCost)}
+            entsprechen nur etwa
+            ${formatNumber(
+              repairCost /
+              estimatedValue *
+              100,
+              1
+            )}% des geschätzten Fahrzeugwerts.
+          </p>
+        </div>
+      `;
+
+    } else if (
+      estimatedValue !== null &&
+      repairCost <=
+        estimatedValue * 0.60
+    ) {
+
+      repairHtml = `
+        <div class="result amber">
+          <strong>Reparatur genau abwägen</strong>
+          <p>
+            Die Reparatur ist finanziell noch
+            vertretbar, liegt aber bereits bei
+            einem größeren Anteil des Fahrzeugwerts.
+          </p>
+        </div>
+      `;
+
+    } else {
+
+      repairHtml = `
+        <div class="result red">
+          <strong>Verkauf eher prüfen</strong>
+          <p>
+            Die Reparaturkosten sind im Verhältnis
+            zum geschätzten Fahrzeugwert sehr hoch.
+          </p>
+        </div>
+      `;
+
+    }
+
+  }
+
+  const result =
+    $("currentResult");
+
+  result.className =
+    "result";
+
+  result.innerHTML = `
+
+    <strong>
+      Weiterfahren ist aktuell grundsätzlich sinnvoll.
+    </strong>
+
+    <p>
+      Eine Reparatur ist nicht automatisch ein Grund,
+      das Fahrzeug zu verkaufen. Entscheidend sind die
+      zukünftigen Gesamtkosten.
+    </p>
+
+    ${
+      holding
+        ? `
+          <div class="metrics">
+
+            <div>
+              <b>
+                ca. ${holding.recommendedYears} Jahre
+              </b>
+              <small>
+                empfohlene weitere Haltedauer
+              </small>
+            </div>
+
+            <div>
+              <b>
+                ${formatKm(
+                  holding.recommendedKm
+                )}
+              </b>
+              <small>
+                ungefährer Prüfpunkt für einen Verkauf
+              </small>
+            </div>
+
+            <div>
+              <b>
+                ${formatEuro(
+                  holding.annualRunningCost
+                )}
+              </b>
+              <small>
+                jährliche laufende Kosten
+              </small>
+            </div>
+
+          </div>
+        `
+        : ""
+    }
+
+    ${
+      estimatedValue
+        ? `
+          <div class="result">
+            <strong>
+              Geschätzter Fahrzeugwert:
+              ${formatEuro(estimatedValue)}
+            </strong>
+
+            <p>
+              Dies ist nur eine Rechengröße und
+              kein konkreter Marktpreis.
+            </p>
+          </div>
+        `
+        : ""
+    }
+
+    ${repairHtml}
+
+  `;
+
+  result.classList.remove("hidden");
+
+}
+
+
+/* =========================================================
+   VERGLEICH NEUES AUTO
+========================================================= */
+
+function calculateComparison() {
+
+  const currentAnnualKm =
+    numberValue("currentAnnualKm");
+
+  const currentConsumption =
+    numberValue("currentConsumption");
+
+  const currentFuelPrice =
+    numberValue("currentFuelPrice");
+
+  const currentInsurance =
+    numberValue("currentInsurance") || 0;
+
+  const currentTax =
+    numberValue("currentTax") || 0;
+
+  const currentPurchasePrice =
+    numberValue("currentPurchasePrice");
+
+  const currentKm =
+    numberValue("currentKm");
+
+  const newPurchasePrice =
+    numberValue("newPurchasePrice");
+
+  const newConsumption =
+    numberValue("newConsumption");
+
+  const newInsurance =
+    numberValue("newInsurance") || 0;
+
+  const newTax =
+    numberValue("newTax") || 0;
+
+  if (
+    currentAnnualKm === null ||
+    currentConsumption === null ||
+    currentFuelPrice === null ||
+    newPurchasePrice === null ||
+    newConsumption === null
+  ) {
+
+    const result =
+      $("comparisonResult");
+
+    result.className =
+      "result red";
+
+    result.innerHTML = `
+      <strong>Angaben fehlen</strong>
+      <p>
+        Für den Vergleich werden die Daten des
+        aktuellen Autos und mindestens Kaufpreis
+        und Verbrauch des neuen Autos benötigt.
+      </p>
+    `;
+
+    result.classList.remove("hidden");
+
+    return;
+
+  }
+
+  const currentFuelCost =
+    currentAnnualKm /
+    100 *
+    currentConsumption *
+    currentFuelPrice;
+
+  const newFuelCost =
+    currentAnnualKm /
+    100 *
+    newConsumption *
+    currentFuelPrice;
+
+  const currentAnnualCost =
+    currentFuelCost +
+    currentInsurance * 12 +
+    currentTax;
+
+  const newAnnualCost =
+    newFuelCost +
+    newInsurance * 12 +
+    newTax;
+
+  const annualSaving =
+    currentAnnualCost -
+    newAnnualCost;
+
+  const currentPrice =
+    currentPurchasePrice || 0;
+
+  const additionalInvestment =
+    Math.max(
+      0,
+      newPurchasePrice -
+      currentPrice
+    );
+
+  const paybackYears =
+    annualSaving > 0
+      ? additionalInvestment /
+        annualSaving
+      : null;
+
+  const fuelSaving =
+    currentFuelCost -
+    newFuelCost;
+
+  const result =
+    $("comparisonResult");
+
+  result.className =
+    "result";
+
+  let recommendation;
+
+  if (
+    paybackYears !== null &&
+    paybackYears <= 5
+  ) {
+
+    recommendation = `
+      <div class="result green">
+        <strong>Der Wechsel kann sich finanziell lohnen.</strong>
+        <p>
+          Die zusätzlichen Anschaffungskosten würden sich
+          rechnerisch nach ungefähr
+          ${formatNumber(paybackYears, 1)}
+          Jahren amortisieren.
+        </p>
+      </div>
+    `;
+
+  } else if (
+    paybackYears !== null &&
+    paybackYears <= 10
+  ) {
+
+    recommendation = `
+      <div class="result amber">
+        <strong>Der Mehrwert ist eher begrenzt.</strong>
+        <p>
+          Die zusätzlichen Anschaffungskosten amortisieren
+          sich erst nach ungefähr
+          ${formatNumber(paybackYears, 1)}
+          Jahren.
+        </p>
+      </div>
+    `;
 
   } else {
 
-    init();
+    recommendation = `
+      <div class="result red">
+        <strong>Ein Wechsel ist finanziell aktuell eher nicht attraktiv.</strong>
+        <p>
+          Der finanzielle Vorteil des neuen Autos reicht
+          voraussichtlich nicht aus, um die Mehrkosten
+          innerhalb eines sinnvollen Zeitraums auszugleichen.
+        </p>
+      </div>
+    `;
+
   }
 
-})();
+  result.innerHTML = `
+
+    ${recommendation}
+
+    <div class="metrics">
+
+      <div>
+        <b>
+          ${formatEuro(currentAnnualCost)}
+        </b>
+        <small>
+          aktuelle jährliche Kosten
+        </small>
+      </div>
+
+      <div>
+        <b>
+          ${formatEuro(newAnnualCost)}
+        </b>
+        <small>
+          neue jährliche Kosten
+        </small>
+      </div>
+
+      <div>
+        <b>
+          ${formatEuro(
+            Math.abs(annualSaving)
+          )}
+        </b>
+        <small>
+          ${annualSaving >= 0
+            ? "jährliche Ersparnis"
+            : "jährliche Mehrkosten"}
+        </small>
+      </div>
+
+    </div>
+
+    <div class="metrics">
+
+      <div>
+        <b>
+          ${formatEuro(fuelSaving)}
+        </b>
+        <small>
+          Kraftstoffersparnis pro Jahr
+        </small>
+      </div>
+
+      <div>
+        <b>
+          ${formatEuro(additionalInvestment)}
+        </b>
+        <small>
+          zusätzliche Investition
+        </small>
+      </div>
+
+      <div>
+        <b>
+          ${
+            paybackYears !== null
+              ? formatNumber(
+                  paybackYears,
+                  1
+                ) + " Jahre"
+              : "nicht erreichbar"
+          }
+        </b>
+        <small>
+          Amortisationszeit
+        </small>
+      </div>
+
+    </div>
+
+    ${
+      currentKm !== null
+        ? `
+          <p style="margin-top:18px">
+            Aktueller Kilometerstand:
+            <strong>
+              ${formatKm(currentKm)}
+            </strong>
+          </p>
+        `
+        : ""
+    }
+
+  `;
+
+  result.classList.remove("hidden");
+
+}
+
+
+/* =========================================================
+   GESPEICHERTE AUTOS
+========================================================= */
+
+const STORAGE_KEY =
+  "autoCostCheck_savedCars";
+
+
+function getSavedCars() {
+
+  try {
+
+    const data =
+      localStorage.getItem(
+        STORAGE_KEY
+      );
+
+    return data
+      ? JSON.parse(data)
+      : [];
+
+  } catch {
+
+    return [];
+
+  }
+
+}
+
+
+function saveCars(cars) {
+
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify(cars)
+  );
+
+}
+
+
+function collectCurrentCar() {
+
+  return {
+
+    id: Date.now(),
+
+    created:
+      new Date().toISOString(),
+
+    vehicle:
+      currentVehicle,
+
+    purchasePrice:
+      numberValue(
+        "currentPurchasePrice"
+      ),
+
+    purchaseKm:
+      numberValue(
+        "currentPurchaseKm"
+      ),
+
+    purchaseDate:
+      $("currentPurchaseDate")?.value || "",
+
+    currentKm:
+      numberValue(
+        "currentKm"
+      ),
+
+    annualKm:
+      numberValue(
+        "currentAnnualKm"
+      ),
+
+    consumption:
+      numberValue(
+        "currentConsumption"
+      ),
+
+    fuelPrice:
+      numberValue(
+        "currentFuelPrice"
+      ),
+
+    insurance:
+      numberValue(
+        "currentInsurance"
+      ),
+
+    tax:
+      numberValue(
+        "currentTax"
+      ),
+
+    repairCost:
+      numberValue(
+        "currentRepairCost"
+      ),
+
+    vehicleValue:
+      numberValue(
+        "currentValue"
+      )
+
+  };
+
+}
+
+
+function saveCurrentCar() {
+
+  const car =
+    collectCurrentCar();
+
+  if (
+    !car.purchasePrice &&
+    !car.currentKm &&
+    !car.vehicle
+  ) {
+
+    alert(
+      "Bitte zuerst dein Fahrzeug und die wichtigsten Daten eingeben."
+    );
+
+    return;
+
+  }
+
+  const cars =
+    getSavedCars();
+
+  cars.push(car);
+
+  saveCars(cars);
+
+  renderSavedCars();
+
+  alert(
+    "Fahrzeug wurde gespeichert."
+  );
+
+}
+
+
+function deleteSavedCar(id) {
+
+  const cars =
+    getSavedCars()
+      .filter(car =>
+        String(car.id) !== String(id)
+      );
+
+  saveCars(cars);
+
+  renderSavedCars();
+
+}
+
+
+function loadSavedCar(id) {
+
+  const car =
+    getSavedCars()
+      .find(item =>
+        String(item.id) === String(id)
+      );
+
+  if (!car) return;
+
+  const vehicle =
+    car.vehicle;
+
+  currentVehicle =
+    vehicle || null;
+
+  setValue(
+    "currentPurchasePrice",
+    car.purchasePrice
+  );
+
+  setValue(
+    "currentPurchaseKm",
+    car.purchaseKm
+  );
+
+  setValue(
+    "currentPurchaseDate",
+    car.purchaseDate
+  );
+
+  setValue(
+    "currentKm",
+    car.currentKm
+  );
+
+  setValue(
+    "currentAnnualKm",
+    car.annualKm
+  );
+
+  setValue(
+    "currentConsumption",
+    car.consumption
+  );
+
+  setValue(
+    "currentFuelPrice",
+    car.fuelPrice
+  );
+
+  setValue(
+    "currentInsurance",
+    car.insurance
+  );
+
+  setValue(
+    "currentTax",
+    car.tax
+  );
+
+  setValue(
+    "currentRepairCost",
+    car.repairCost
+  );
+
+  setValue(
+    "currentValue",
+    car.vehicleValue
+  );
+
+  if (vehicle) {
+
+    renderVehicle(
+      "currentVehicleData",
+      vehicle
+    );
+
+  }
+
+  document
+    .querySelectorAll(".tabs .tab")
+    .forEach(tab => {
+
+      tab.classList.toggle(
+        "active",
+        tab.dataset.target ===
+          "currentCarSection"
+      );
+
+    });
+
+  [
+    "currentCarSection",
+    "newCarSection",
+    "savedSection"
+  ].forEach(id => {
+
+    const section = $(id);
+
+    if (!section) return;
+
+    section.classList.toggle(
+      "hidden",
+      id !== "currentCarSection"
+    );
+
+  });
+
+}
+
+
+/* =========================================================
+   GESPEICHERTE AUTOS RENDERN
+========================================================= */
+
+function renderSavedCars() {
+
+  const container =
+    $("savedCars");
+
+  if (!container) return;
+
+  const cars =
+    getSavedCars();
+
+  if (!cars.length) {
+
+    container.innerHTML = `
+      <div class="result">
+        <strong>Noch keine Fahrzeuge gespeichert</strong>
+        <p>
+          Speichere dein aktuelles Fahrzeug,
+          um es später wieder aufzurufen.
+        </p>
+      </div>
+    `;
+
+    return;
+
+  }
+
+  container.innerHTML =
+    cars.map(car => {
+
+      const vehicle =
+        car.vehicle;
+
+      const title =
+        vehicle
+          ? [
+              vehicle.brand,
+              vehicle.model
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : "Fahrzeug";
+
+      const subtitle =
+        vehicle
+          ? [
+              vehicle.generation,
+              vehicle.engine
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : "Keine Fahrzeugdaten";
+
+      return `
+
+        <div class="saved">
+
+          <div>
+
+            <strong>
+              ${escapeHtml(
+                title || "Fahrzeug"
+              )}
+            </strong>
+
+            <small>
+              ${escapeHtml(
+                subtitle
+              )}
+            </small>
+
+            <small>
+              ${
+                car.currentKm
+                  ? formatKm(
+                      car.currentKm
+                    )
+                  : "Kilometerstand nicht angegeben"
+              }
+            </small>
+
+          </div>
+
+          <div class="actions">
+
+            <button
+              type="button"
+              class="btn white"
+              data-load-car="${car.id}"
+            >
+              Laden
+            </button>
+
+            <button
+              type="button"
+              class="btn white danger"
+              data-delete-car="${car.id}"
+            >
+              Löschen
+            </button>
+
+          </div>
+
+        </div>
+
+      `;
+
+    }).join("");
+
+  container
+    .querySelectorAll("[data-load-car]")
+    .forEach(button => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          loadSavedCar(
+            button.dataset.loadCar
+          );
+
+        }
+      );
+
+    });
+
+  container
+    .querySelectorAll("[data-delete-car]")
+    .forEach(button => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          deleteSavedCar(
+            button.dataset.deleteCar
+          );
+
+        }
+      );
+
+    });
+
+}
+
+
+/* =========================================================
+   EINGABEN LÖSCHEN
+========================================================= */
+
+function clearInputs() {
+
+  const inputs =
+    document.querySelectorAll(
+      "input"
+    );
+
+  inputs.forEach(input => {
+
+    input.value = "";
+
+  });
+
+  currentVehicle = null;
+  newVehicle = null;
+
+  document
+    .querySelectorAll(
+      ".vehicle-data"
+    )
+    .forEach(element => {
+
+      element.innerHTML = "";
+      element.classList.add("hidden");
+
+    });
+
+  document
+    .querySelectorAll(
+      ".api-status"
+    )
+    .forEach(element => {
+
+      element.textContent = "";
+      element.classList.add("hidden");
+
+    });
+
+  const currentResult =
+    $("currentResult");
+
+  if (currentResult) {
+    currentResult.innerHTML = "";
+    currentResult.className =
+      "result hidden";
+  }
+
+  const comparisonResult =
+    $("comparisonResult");
+
+  if (comparisonResult) {
+    comparisonResult.innerHTML = "";
+    comparisonResult.className =
+      "result hidden";
+  }
+
+  [
+    "currentModelSelect",
+    "currentGenerationSelect",
+    "currentEngineSelect",
+    "newModelSelect",
+    "newGenerationSelect",
+    "newEngineSelect"
+  ].forEach(id => {
+
+    const select = $(id);
+
+    if (!select) return;
+
+    select.selectedIndex = 0;
+    select.disabled = true;
+
+  });
+
+}
+
+
+/* =========================================================
+   DIREKTER FAHRZEUGVERGLEICH
+========================================================= */
+
+function renderVehicleComparison() {
+
+  const container =
+    $("vehicleComparison");
+
+  const section =
+    $("comparisonSection");
+
+  if (!container || !section) return;
+
+  if (
+    !currentVehicle ||
+    !newVehicle
+  ) {
+
+    section.classList.add("hidden");
+
+    return;
+
+  }
+
+  const rows = [
+
+    [
+      "Marke",
+      currentVehicle.brand,
+      newVehicle.brand
+    ],
+
+    [
+      "Modell",
+      currentVehicle.model,
+      newVehicle.model
+    ],
+
+    [
+      "Generation",
+      currentVehicle.generation,
+      newVehicle.generation
+    ],
+
+    [
+      "Baujahr",
+      currentVehicle.year,
+      newVehicle.year
+    ],
+
+    [
+      "Leistung",
+      currentVehicle.power
+        ? `${formatNumber(
+            currentVehicle.power
+          )} PS`
+        : "–",
+      newVehicle.power
+        ? `${formatNumber(
+            newVehicle.power
+          )} PS`
+        : "–"
+    ],
+
+    [
+      "Hubraum",
+      currentVehicle.displacement
+        ? `${formatNumber(
+            currentVehicle.displacement,
+            1
+          )} L`
+        : "–",
+      newVehicle.displacement
+        ? `${formatNumber(
+            newVehicle.displacement,
+            1
+          )} L`
+        : "–"
+    ],
+
+    [
+      "Kraftstoff",
+      currentVehicle.fuel || "–",
+      newVehicle.fuel || "–"
+    ],
+
+    [
+      "Getriebe",
+      currentVehicle.transmission || "–",
+      newVehicle.transmission || "–"
+    ],
+
+    [
+      "HSN",
+      currentVehicle.hsn || "–",
+      newVehicle.hsn || "–"
+    ],
+
+    [
+      "TSN",
+      currentVehicle.tsn || "–",
+      newVehicle.tsn || "–"
+    ]
+
+  ];
+
+  container.innerHTML = `
+
+    <table>
+
+      <thead>
+
+        <tr>
+          <th>Merkmal</th>
+          <th>Aktuelles Auto</th>
+          <th>Neues Auto</th>
+        </tr>
+
+      </thead>
+
+      <tbody>
+
+        ${rows.map(row => `
+
+          <tr>
+
+            <td>
+              <strong>
+                ${escapeHtml(row[0])}
+              </strong>
+            </td>
+
+            <td>
+              ${escapeHtml(
+                row[1] ?? "–"
+              )}
+            </td>
+
+            <td>
+              ${escapeHtml(
+                row[2] ?? "–"
+              )}
+            </td>
+
+          </tr>
+
+        `).join("")}
+
+      </tbody>
+
+    </table>
+
+  `;
+
+  section.classList.remove("hidden");
+
+}
+
+
+/* =========================================================
+   EVENTS
+========================================================= */
+
+function initEvents() {
+
+  /* HSN / TSN */
+
+  $("currentHsnSearchBtn")
+    ?.addEventListener(
+      "click",
+      () =>
+        searchVehicleByHsn(
+          "current"
+        )
+    );
+
+  $("newHsnSearchBtn")
+    ?.addEventListener(
+      "click",
+      () =>
+        searchVehicleByHsn(
+          "new"
+        )
+    );
+
+
+  /* Marken */
+
+  $("currentBrandSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadModels("current")
+    );
+
+  $("newBrandSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadModels("new")
+    );
+
+
+  /* Modelle */
+
+  $("currentModelSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadGenerations("current")
+    );
+
+  $("newModelSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadGenerations("new")
+    );
+
+
+  /* Generation */
+
+  $("currentGenerationSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadEngines("current")
+    );
+
+  $("newGenerationSelect")
+    ?.addEventListener(
+      "change",
+      () =>
+        loadEngines("new")
+    );
+
+
+  /* Modell-Suche */
+
+  $("currentModelSearchBtn")
+    ?.addEventListener(
+      "click",
+      () =>
+        selectVehicleByModel(
+          "current"
+        )
+    );
+
+  $("newModelSearchBtn")
+    ?.addEventListener(
+      "click",
+      () =>
+        selectVehicleByModel(
+          "new"
+        )
+    );
+
+
+  /* Berechnen */
+
+  $("calculateCurrentBtn")
+    ?.addEventListener(
+      "click",
+      calculateCurrent
+    );
+
+  $("calculateComparisonBtn")
+    ?.addEventListener(
+      "click",
+      () => {
+
+        calculateComparison();
+
+        renderVehicleComparison();
+
+      }
+    );
+
+
+  /* Speichern */
+
+  $("saveCurrentBtn")
+    ?.addEventListener(
+      "click",
+      saveCurrentCar
+    );
+
+
+  /* Löschen */
+
+  $("clearInputsBtn")
+    ?.addEventListener(
+      "click",
+      clearInputs
+    );
+
+
+  /* Gespeicherte Autos */
+
+  $("savedCarsBtn")
+    ?.addEventListener(
+      "click",
+      () => {
+
+        document
+          .querySelector(
+            '.tab[data-target="savedSection"]'
+          )
+          ?.click();
+
+        renderSavedCars();
+
+      }
+    );
+
+}
+
+
+/* =========================================================
+   INITIALISIERUNG
+========================================================= */
+
+async function init() {
+
+  initTheme();
+
+  initMainTabs();
+
+  initSearchTabs();
+
+  initEvents();
+
+  renderSavedCars();
+
+  /*
+   * Marken beim Start laden.
+   * Fehler werden bewusst nicht als Popup angezeigt,
+   * damit die restliche Anwendung trotzdem funktioniert.
+   */
+
+  await Promise.allSettled([
+    loadBrands("current"),
+    loadBrands("new")
+  ]);
+
+}
+
+
+document.addEventListener(
+  "DOMContentLoaded",
+  init
+);
