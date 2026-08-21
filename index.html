@@ -21,72 +21,50 @@
 <body>
 
 <header>
-
   <nav>
 
     <a href="#" class="logo">
       Auto<span>Cost</span>Check
     </a>
 
-    <button
-      type="button"
-      class="icon"
-      id="themeToggle"
-      aria-label="Dunklen Modus aktivieren"
-    >
-      🌙
-    </button>
+    <div class="nav-actions">
+
+      <button
+        type="button"
+        class="nav-button"
+        id="clearInputsBtn"
+        title="Eingaben löschen"
+      >
+        ↻
+        <span>Eingaben löschen</span>
+      </button>
+
+      <button
+        type="button"
+        class="nav-button"
+        id="savedCarsBtn"
+        title="Gespeicherte Fahrzeuge"
+      >
+        ★
+        <span>Gespeicherte Autos</span>
+      </button>
+
+      <button
+        type="button"
+        class="icon"
+        id="themeToggle"
+        aria-label="Dunklen Modus aktivieren"
+      >
+        🌙
+      </button>
+
+    </div>
 
   </nav>
-
 </header>
 
 
 <main>
-
-  <!-- ======================================================
-       HERO
-  ======================================================= -->
-
-  <section class="hero">
-
-    <div class="hero-main">
-
-      <small>Fahrzeugkosten intelligent vergleichen</small>
-
-      <h1>
-        Lohnt sich dein Auto noch?
-      </h1>
-
-      <p>
-        Berechne laufende Kosten, Reparaturen und den
-        richtigen Zeitpunkt für einen Fahrzeugwechsel.
-      </p>
-
-    </div>
-
-
-    <div class="hero-side">
-
-      <small>Dein Fahrzeug</small>
-
-      <strong id="heroVehicle">
-        Noch kein Fahrzeug
-      </strong>
-
-      <p>
-        Hinterlege dein Fahrzeug und vergleiche später
-        verschiedene Autos miteinander.
-      </p>
-
-      <div class="progress">
-        <i id="profileProgress"></i>
-      </div>
-
-    </div>
-
-  </section>
-
 
   <!-- ======================================================
        TABS
@@ -132,25 +110,27 @@
 
     <div class="card">
 
-      <h2>Aktuelles Auto</h2>
+      <div class="section-heading">
+        <div>
+          <h2>Aktuelles Auto</h2>
+          <p>
+            Hinterlege dein aktuelles Fahrzeug und berechne,
+            wie lange sich das Weiterfahren voraussichtlich lohnt.
+          </p>
+        </div>
+      </div>
 
-      <p>
-        Suche zuerst dein Fahrzeug. Deine persönlichen
-        Kosten und Fahrzeugdaten werden anschließend
-        separat eingetragen.
-      </p>
 
-
-      <!-- ================================================
+      <!-- ==================================================
            FAHRZEUGSUCHE
-      ================================================= -->
+      =================================================== -->
 
       <div class="vehicle-search">
 
-        <h3>Fahrzeug suchen</h3>
+        <h3>Fahrzeug auswählen</h3>
 
         <p>
-          Suche über HSN/TSN oder über Marke und Modell.
+          Suche über HSN/TSN oder über Hersteller und Modell.
         </p>
 
 
@@ -159,7 +139,7 @@
           <button
             type="button"
             class="search-tab active"
-            data-panel="hsnTsnPanel"
+            data-panel="currentHsnPanel"
           >
             HSN / TSN
           </button>
@@ -167,7 +147,7 @@
           <button
             type="button"
             class="search-tab"
-            data-panel="modelPanel"
+            data-panel="currentModelPanel"
           >
             Marke / Modell
           </button>
@@ -178,7 +158,7 @@
         <!-- HSN / TSN -->
 
         <div
-          id="hsnTsnPanel"
+          id="currentHsnPanel"
           class="search-panel"
         >
 
@@ -186,12 +166,12 @@
 
             <label>
               HSN
+
               <input
-                id="hsn"
+                id="currentHsn"
                 type="text"
                 inputmode="numeric"
                 maxlength="4"
-                placeholder="z. B. 0035"
                 autocomplete="off"
               >
             </label>
@@ -199,11 +179,11 @@
 
             <label>
               TSN
+
               <input
-                id="tsn"
+                id="currentTsn"
                 type="text"
                 maxlength="4"
-                placeholder="z. B. AFQ"
                 autocomplete="off"
               >
             </label>
@@ -216,7 +196,7 @@
             <button
               type="button"
               class="btn blue"
-              id="hsnTsnSearchBtn"
+              id="currentHsnSearchBtn"
             >
               Fahrzeug suchen
             </button>
@@ -229,7 +209,7 @@
         <!-- MARKE / MODELL -->
 
         <div
-          id="modelPanel"
+          id="currentModelPanel"
           class="search-panel hidden"
         >
 
@@ -238,12 +218,10 @@
             <label>
               Marke
 
-              <select id="brandSelect">
-
+              <select id="currentBrandSelect">
                 <option value="">
-                  Marke auswählen …
+                  Marke auswählen
                 </option>
-
               </select>
 
             </label>
@@ -253,14 +231,42 @@
               Modell
 
               <select
-                id="modelSelect"
+                id="currentModelSelect"
                 disabled
               >
-
                 <option value="">
-                  Modell auswählen …
+                  Modell auswählen
                 </option>
+              </select>
 
+            </label>
+
+
+            <label>
+              Typ / Generation
+
+              <select
+                id="currentGenerationSelect"
+                disabled
+              >
+                <option value="">
+                  Typ / Generation auswählen
+                </option>
+              </select>
+
+            </label>
+
+
+            <label>
+              Motorisierung
+
+              <select
+                id="currentEngineSelect"
+                disabled
+              >
+                <option value="">
+                  Motorisierung auswählen
+                </option>
               </select>
 
             </label>
@@ -273,9 +279,9 @@
             <button
               type="button"
               class="btn blue"
-              id="modelSearchBtn"
+              id="currentModelSearchBtn"
             >
-              Modell suchen
+              Fahrzeug auswählen
             </button>
 
           </div>
@@ -283,142 +289,30 @@
         </div>
 
 
-        <!-- API STATUS -->
-
         <div
-          id="apiStatus"
+          id="currentApiStatus"
           class="api-status hidden"
           aria-live="polite"
         ></div>
 
 
-        <!-- SEARCH RESULTS -->
+        <!-- FAHRZEUGERGEBNIS -->
 
         <div
-          id="vehicleSearchResults"
+          id="currentVehicleData"
           class="vehicle-data hidden"
         ></div>
-
-
-        <!-- SELECTED VEHICLE -->
-
-        <div
-          id="vehicleData"
-          class="vehicle-data hidden"
-        >
-
-          <div class="vehicle-header">
-
-            <div>
-
-              <small>GEFUNDENES FAHRZEUG</small>
-
-              <h3 id="vehicleModel">
-                —
-              </h3>
-
-              <p id="vehicleDisplay">
-                —
-              </p>
-
-            </div>
-
-            <div class="vehicle-check">
-              ✓
-            </div>
-
-          </div>
-
-
-          <div class="vehicle-specs">
-
-            <div>
-
-              <strong id="vehicleBrand">
-                —
-              </strong>
-
-              <small>Marke</small>
-
-            </div>
-
-
-            <div>
-
-              <strong id="vehicleYears">
-                —
-              </strong>
-
-              <small>Baujahre</small>
-
-            </div>
-
-
-            <div>
-
-              <strong id="vehicleHsn">
-                —
-              </strong>
-
-              <small>HSN</small>
-
-            </div>
-
-
-            <div>
-
-              <strong id="vehicleTsn">
-                —
-              </strong>
-
-              <small>TSN</small>
-
-            </div>
-
-          </div>
-
-        </div>
 
       </div>
 
 
-      <!-- Hidden fields for selected API vehicle -->
-
-      <input
-        type="hidden"
-        id="selectedBrand"
-      >
-
-      <input
-        type="hidden"
-        id="selectedModel"
-      >
-
-      <input
-        type="hidden"
-        id="selectedHsn"
-      >
-
-      <input
-        type="hidden"
-        id="selectedTsn"
-      >
-
+      <!-- ==================================================
+           FAHRZEUGDATEN
+      =================================================== -->
 
       <div class="section-divider"></div>
 
-
-      <!-- ================================================
-           FAHRZEUGDATEN
-      ================================================= -->
-
       <h3>Fahrzeugdaten</h3>
-
-      <p>
-        Diese Angaben beziehen sich auf dein konkretes
-        Fahrzeug.
-      </p>
-
 
       <div class="grid">
 
@@ -426,13 +320,11 @@
           Kaufpreis (€)
 
           <input
-            id="purchasePrice"
+            id="currentPurchasePrice"
             type="number"
             min="0"
             step="1"
-            placeholder="z. B. 3.800"
           >
-
         </label>
 
 
@@ -440,13 +332,11 @@
           Kilometerstand beim Kauf
 
           <input
-            id="purchaseKm"
+            id="currentPurchaseKm"
             type="number"
             min="0"
             step="1"
-            placeholder="z. B. 156.000"
           >
-
         </label>
 
 
@@ -454,10 +344,9 @@
           Kaufdatum
 
           <input
-            id="purchaseDate"
+            id="currentPurchaseDate"
             type="date"
           >
-
         </label>
 
 
@@ -469,23 +358,19 @@
             type="number"
             min="0"
             step="1"
-            placeholder="z. B. 180.000"
           >
-
         </label>
 
       </div>
 
 
+      <!-- ==================================================
+           FAHRPROFIL
+      =================================================== -->
+
       <div class="profile">
 
         <h3>Fahrprofil</h3>
-
-        <p>
-          Das Fahrprofil wird bewusst direkt vor der
-          Berechnung angezeigt, damit es nicht übersehen wird.
-        </p>
-
 
         <div class="grid">
 
@@ -493,13 +378,11 @@
             Fahrleistung pro Jahr (km)
 
             <input
-              id="annualKm"
+              id="currentAnnualKm"
               type="number"
               min="0"
               step="100"
-              placeholder="z. B. 15.000"
             >
-
           </label>
 
 
@@ -507,27 +390,23 @@
             Verbrauch (l/100 km)
 
             <input
-              id="consumption"
+              id="currentConsumption"
               type="number"
               min="0"
               step="0.1"
-              placeholder="z. B. 6,5"
             >
-
           </label>
 
 
           <label>
-            Benzinpreis (€ / Liter)
+            Kraftstoffpreis (€ / Liter)
 
             <input
-              id="fuelPrice"
+              id="currentFuelPrice"
               type="number"
               min="0"
               step="0.01"
-              placeholder="z. B. 1,80"
             >
-
           </label>
 
 
@@ -535,13 +414,11 @@
             Versicherung (€ / Monat)
 
             <input
-              id="insurance"
+              id="currentInsurance"
               type="number"
               min="0"
               step="0.01"
-              placeholder="z. B. 75"
             >
-
           </label>
 
 
@@ -549,13 +426,11 @@
             Kfz-Steuer (€ / Jahr)
 
             <input
-              id="tax"
+              id="currentTax"
               type="number"
               min="0"
               step="1"
-              placeholder="z. B. 80"
             >
-
           </label>
 
         </div>
@@ -563,88 +438,76 @@
       </div>
 
 
-      <div class="section-divider"></div>
+      <!-- ==================================================
+           REPARATUR OPTIONAL
+      =================================================== -->
+
+      <div class="optional-section">
+
+        <div class="optional-heading">
+
+          <div>
+            <h3>Reparatur prüfen</h3>
+
+            <p>
+              Optional: Gib eine konkrete Reparatur ein,
+              wenn du prüfen möchtest, ob sie sich lohnt.
+            </p>
+          </div>
+
+          <span>OPTIONAL</span>
+
+        </div>
 
 
-      <!-- ================================================
-           REPARATUR
-      ================================================= -->
+        <div class="grid">
 
-      <h3>Reparatur prüfen</h3>
+          <label>
+            Reparaturkosten (€)
 
-      <p>
-        Gib hier eine mögliche Reparatur und den aktuellen
-        Fahrzeugwert ein.
-      </p>
-
-
-      <div class="grid">
-
-        <label>
-          Reparaturkosten (€)
-
-          <input
-            id="repairCost"
-            type="number"
-            min="0"
-            step="50"
-            placeholder="z. B. 500"
-          >
-
-        </label>
+            <input
+              id="currentRepairCost"
+              type="number"
+              min="0"
+              step="50"
+            >
+          </label>
 
 
-        <label>
-          Aktueller Fahrzeugwert (€)
+          <label>
+            Aktueller Fahrzeugwert (€)
 
-          <input
-            id="currentValue"
-            type="number"
-            min="0"
-            step="100"
-            placeholder="z. B. 2.500"
-          >
+            <input
+              id="currentValue"
+              type="number"
+              min="0"
+              step="100"
+            >
+          </label>
 
-        </label>
-
-
-        <label class="wide">
-          Notizen
-
-          <input
-            id="notes"
-            type="text"
-            placeholder="Optional"
-          >
-
-        </label>
+        </div>
 
       </div>
 
 
-      <!-- ================================================
-           BUTTONS
-      ================================================= -->
+      <!-- ==================================================
+           ACTIONS
+      =================================================== -->
 
-      <div class="actions">
-
-        <!-- bewusst LINKS und BLAU -->
+      <div class="actions main-actions">
 
         <button
           type="button"
           class="btn blue"
-          id="calculateBtn"
+          id="calculateCurrentBtn"
         >
           Berechnen
         </button>
 
-
-        <!-- bewusst RECHTS und WEISS -->
-
         <button
           type="button"
           class="btn white"
-          id="saveCarBtn"
+          id="saveCurrentBtn"
         >
           Auto speichern
         </button>
@@ -652,10 +515,8 @@
       </div>
 
 
-      <!-- CALCULATION RESULT -->
-
       <div
-        id="calculationResult"
+        id="currentResult"
         class="result hidden"
       ></div>
 
@@ -678,11 +539,193 @@
       <h2>Neues Auto vergleichen</h2>
 
       <p>
-        Dieser Bereich kann später genutzt werden, um ein
-        potenzielles neues Fahrzeug mit deinem aktuellen
-        Auto zu vergleichen.
+        Wähle ein Fahrzeug aus und vergleiche es direkt mit
+        deinem aktuellen Auto.
       </p>
 
+
+      <!-- NEUES AUTO SUCHEN -->
+
+      <div class="vehicle-search">
+
+        <h3>Neues Fahrzeug auswählen</h3>
+
+
+        <div class="search-tabs">
+
+          <button
+            type="button"
+            class="search-tab active"
+            data-panel="newHsnPanel"
+          >
+            HSN / TSN
+          </button>
+
+          <button
+            type="button"
+            class="search-tab"
+            data-panel="newModelPanel"
+          >
+            Marke / Modell
+          </button>
+
+        </div>
+
+
+        <!-- HSN / TSN -->
+
+        <div
+          id="newHsnPanel"
+          class="search-panel"
+        >
+
+          <div class="grid">
+
+            <label>
+              HSN
+
+              <input
+                id="newHsn"
+                type="text"
+                inputmode="numeric"
+                maxlength="4"
+                autocomplete="off"
+              >
+            </label>
+
+
+            <label>
+              TSN
+
+              <input
+                id="newTsn"
+                type="text"
+                maxlength="4"
+                autocomplete="off"
+              >
+            </label>
+
+          </div>
+
+
+          <div class="actions">
+
+            <button
+              type="button"
+              class="btn blue"
+              id="newHsnSearchBtn"
+            >
+              Fahrzeug suchen
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <!-- MARKE / MODELL -->
+
+        <div
+          id="newModelPanel"
+          class="search-panel hidden"
+        >
+
+          <div class="grid">
+
+            <label>
+              Marke
+
+              <select id="newBrandSelect">
+                <option value="">
+                  Marke auswählen
+                </option>
+              </select>
+
+            </label>
+
+
+            <label>
+              Modell
+
+              <select
+                id="newModelSelect"
+                disabled
+              >
+                <option value="">
+                  Modell auswählen
+                </option>
+              </select>
+
+            </label>
+
+
+            <label>
+              Typ / Generation
+
+              <select
+                id="newGenerationSelect"
+                disabled
+              >
+                <option value="">
+                  Typ / Generation auswählen
+                </option>
+              </select>
+
+            </label>
+
+
+            <label>
+              Motorisierung
+
+              <select
+                id="newEngineSelect"
+                disabled
+              >
+                <option value="">
+                  Motorisierung auswählen
+                </option>
+              </select>
+
+            </label>
+
+          </div>
+
+
+          <div class="actions">
+
+            <button
+              type="button"
+              class="btn blue"
+              id="newModelSearchBtn"
+            >
+              Fahrzeug auswählen
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="newApiStatus"
+          class="api-status hidden"
+          aria-live="polite"
+        ></div>
+
+
+        <div
+          id="newVehicleData"
+          class="vehicle-data hidden"
+        ></div>
+
+      </div>
+
+
+      <!-- NEUES AUTO DATEN -->
+
+      <div class="section-divider"></div>
+
+      <h3>Daten des neuen Autos</h3>
 
       <div class="grid">
 
@@ -690,11 +733,11 @@
           Kaufpreis (€)
 
           <input
+            id="newPurchasePrice"
             type="number"
             min="0"
-            placeholder="z. B. 8.500"
+            step="1"
           >
-
         </label>
 
 
@@ -702,9 +745,9 @@
           Erstzulassung
 
           <input
+            id="newRegistrationDate"
             type="date"
           >
-
         </label>
 
 
@@ -712,11 +755,11 @@
           Kilometerstand
 
           <input
+            id="newKm"
             type="number"
             min="0"
-            placeholder="z. B. 80.000"
+            step="1"
           >
-
         </label>
 
 
@@ -724,52 +767,57 @@
           Verbrauch (l/100 km)
 
           <input
+            id="newConsumption"
             type="number"
             min="0"
             step="0.1"
-            placeholder="z. B. 5,5"
           >
-
         </label>
 
 
         <label>
-          Leistung (PS)
+          Versicherung (€ / Monat)
 
           <input
+            id="newInsurance"
             type="number"
             min="0"
-            placeholder="z. B. 100"
+            step="0.01"
           >
-
         </label>
 
 
         <label>
-          Reparaturreserve (€)
+          Kfz-Steuer (€ / Jahr)
 
           <input
+            id="newTax"
             type="number"
             min="0"
-            placeholder="z. B. 1.000"
+            step="1"
           >
-
         </label>
 
       </div>
 
 
-      <div class="actions">
+      <div class="actions main-actions">
 
         <button
           type="button"
           class="btn blue"
-          disabled
+          id="calculateComparisonBtn"
         >
           Vergleich berechnen
         </button>
 
       </div>
+
+
+      <div
+        id="comparisonResult"
+        class="result hidden"
+      ></div>
 
     </div>
 
@@ -790,9 +838,7 @@
       <h2>Gespeicherte Autos</h2>
 
       <p>
-        Deine Fahrzeuge werden lokal in deinem Browser
-        gespeichert. Sie werden nicht an einen Server
-        übertragen.
+        Die Fahrzeuge werden lokal in deinem Browser gespeichert.
       </p>
 
 
@@ -802,13 +848,41 @@
 
   </section>
 
+
+  <!-- ======================================================
+       DIREKTER VERGLEICH
+  ======================================================= -->
+
+  <section
+    id="comparisonSection"
+    class="card hidden"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <h2>Fahrzeugvergleich</h2>
+
+        <p>
+          Die technischen Daten stammen aus der Fahrzeugdatenbank.
+        </p>
+      </div>
+
+    </div>
+
+
+    <div
+      id="vehicleComparison"
+      class="comparison-table"
+    ></div>
+
+  </section>
+
 </main>
 
 
 <footer>
-
   Auto Cost Check
-
 </footer>
 
 
