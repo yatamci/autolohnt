@@ -88,14 +88,6 @@
       Neues Auto vergleichen
     </button>
 
-    <button
-      type="button"
-      class="tab"
-      data-target="savedSection"
-    >
-      Gespeicherte Autos
-    </button>
-
   </div>
 
 
@@ -296,8 +288,6 @@
         ></div>
 
 
-        <!-- FAHRZEUGERGEBNIS -->
-
         <div
           id="currentVehicleData"
           class="vehicle-data hidden"
@@ -450,8 +440,8 @@
             <h3>Reparatur prüfen</h3>
 
             <p>
-              Optional: Gib eine konkrete Reparatur ein,
-              wenn du prüfen möchtest, ob sie sich lohnt.
+              Optional: Gib Reparaturkosten ein,
+              wenn du prüfen möchtest, ob sich die Reparatur lohnt.
             </p>
           </div>
 
@@ -470,18 +460,6 @@
               type="number"
               min="0"
               step="50"
-            >
-          </label>
-
-
-          <label>
-            Aktueller Fahrzeugwert (€)
-
-            <input
-              id="currentValue"
-              type="number"
-              min="0"
-              step="100"
             >
           </label>
 
@@ -826,6 +804,7 @@
 
   <!-- ======================================================
        GESPEICHERTE AUTOS
+       Wird ausschließlich über den Stern geöffnet.
   ======================================================= -->
 
   <section
