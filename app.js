@@ -661,105 +661,431 @@ function findValue(
 
 }
 
-
 function normalizeVehicle(raw) {
 
-  const vehicle =
-    unwrapVehicle(raw);
+  const vehicle = unwrapVehicle(raw);
 
   if (!vehicle) return null;
 
+
+  /*
+   * =====================================================
+   * API-DATEN KÖNNEN AUF VERSCHIEDENEN EBENEN LIEGEN
+   *
+   * api4cars liefert je nach Endpunkt z.B.:
+   *
+   * {
+   *   brand: "BMW",
+   *   model: "3er-Reihe",
+   *   years: "2019 - 2022",
+   *
+   *   vehicle_data: {
+   *     Leistung: "190 PS",
+   *     Hubraum: "1998 ccm",
+   *     Kraftstoff: "Benzin",
+   *     Getriebe: "Automatik"
+   *   }
+   * }
+   *
+   * Deshalb durchsuchen wir sowohl die
+   * Hauptebene als auch vehicle_data.
+   * =====================================================
+   */
+
+  const vehicleData =
+    vehicle.vehicle_data ||
+    vehicle.vehicleData ||
+    vehicle.specifications ||
+    vehicle.technical_data ||
+    vehicle.technicalData ||
+    {};
+
+
+  /*
+   * =====================================================
+   * HILFSFUNKTION
+   *
+   * Sucht einen Wert zuerst in vehicle,
+   * danach in vehicle_data.
+   * =====================================================
+   */
+
+  function getValue(keys) {
+
+    for (const key of keys) {
+
+      if (
+        vehicle[key] !== undefined &&
+        vehicle[key] !== null &&
+        vehicle[key] !== ""
+      ) {
+
+        return vehicle[key];
+
+      }
+
+    }
+
+
+    for (const key of keys) {
+
+      if (
+        vehicleData[key] !== undefined &&
+        vehicleData[key] !== null &&
+        vehicleData[key] !== ""
+      ) {
+
+        return vehicleData[key];
+
+      }
+
+    }
+
+    return null;
+
+  }
+
+
+  /*
+   * =====================================================
+   * MARKE
+   * =====================================================
+   */
+
   const brand =
-    findValue(vehicle, [
+    getValue([
       "brand",
       "make",
       "manufacturer",
-      "make_name"
+      "make_name",
+      "Hersteller",
+      "Marke"
     ]);
+
+
+  /*
+   * =====================================================
+   * MODELL
+   * =====================================================
+   */
 
   const model =
-    findValue(vehicle, [
+    getValue([
       "model",
-      "model_name"
+      "model_name",
+      "Modell"
     ]);
+
+
+  /*
+   * =====================================================
+   * GENERATION
+   * =====================================================
+   */
 
   const generation =
-    findValue(vehicle, [
+    getValue([
       "generation",
-      "generation_name"
+      "generation_name",
+      "Generation",
+      "Baureihe",
+      "type"
     ]);
+
+
+  /*
+   * =====================================================
+   * MOTOR
+   * =====================================================
+   */
 
   const engine =
-    findValue(vehicle, [
+    getValue([
       "engine",
       "engine_name",
-      "engine_type"
+      "engine_type",
+      "Motor",
+      "Motorisierung"
     ]);
+
+
+  /*
+   * =====================================================
+   * BAUJAHR / BAUZEITRAUM
+   *
+   * api4cars verwendet teilweise "years"
+   * statt "year".
+   * =====================================================
+   */
 
   const year =
-    findValue(vehicle, [
+    getValue([
       "year",
+      "years",
       "model_year",
       "production_year",
-      "registration_year"
+      "registration_year",
+      "Baujahr"
     ]);
 
-  const power =
-    findValue(vehicle, [
+
+  /*
+   * =====================================================
+   * LEISTUNG
+   *
+   * Mögliche API-Werte:
+   *
+   * 190
+   * "190 PS"
+   * "140 kW / 190 PS"
+   * =====================================================
+   */
+
+  let power =
+    getValue([
       "power_ps",
       "ps",
       "hp",
       "horsepower",
-      "power"
+      "power",
+      "Leistung"
     ]);
 
-  const displacement =
-    findValue(vehicle, [
+
+  /*
+   * Falls die API "190 PS" oder
+   * "140 kW / 190 PS" liefert:
+   *
+   * -> nur die PS-Zahl extrahieren.
+   */
+
+  if (
+    typeof power === "string"
+  ) {
+
+    const psMatch =
+      power.match(
+        /(\d+(?:[.,]\d+)?)\s*PS/i
+      );
+
+    if (psMatch) {
+
+      power =
+        parseFloat(
+          psMatch[1]
+            .replace(",", ".")
+        );
+
+    } else {
+
+      const numberMatch =
+        power.match(
+          /\d+(?:[.,]\d+)?/
+        );
+
+      if (numberMatch) {
+
+        power =
+          parseFloat(
+            numberMatch[0]
+              .replace(",", ".")
+          );
+
+      }
+
+    }
+
+  }
+
+
+  /*
+   * =====================================================
+   * HUBRAUM
+   *
+   * API kann liefern:
+   *
+   * 1998
+   * "1998 ccm"
+   * 1.998
+   * "1.998 L"
+   *
+   * Intern speichern wir den Wert immer
+   * in LITERN.
+   * =====================================================
+   */
+
+  let displacement =
+    getValue([
       "displacement_l",
       "engine_displacement_l",
-      "displacement"
+      "displacement",
+      "Hubraum"
     ]);
+
+
+  if (
+    typeof displacement === "string"
+  ) {
+
+    const displacementMatch =
+      displacement.match(
+        /(\d+(?:[.,]\d+)?)\s*(ccm|cm³|cm3|l|liter)?/i
+      );
+
+    if (displacementMatch) {
+
+      let number =
+        parseFloat(
+          displacementMatch[1]
+            .replace(",", ".")
+            .replace(/\.(?=\d{3}\b)/g, "")
+        );
+
+      const unit =
+        (
+          displacementMatch[2] || ""
+        ).toLowerCase();
+
+
+      /*
+       * Alles über 20 ist praktisch sicher
+       * ein Wert in ccm.
+       */
+
+      if (
+        unit === "ccm" ||
+        unit === "cm³" ||
+        unit === "cm3" ||
+        number > 20
+      ) {
+
+        number =
+          number / 1000;
+
+      }
+
+      displacement = number;
+
+    }
+
+  } else if (
+    typeof displacement === "number"
+  ) {
+
+    /*
+     * Falls die API z.B. 1998 statt 1.998 liefert.
+     */
+
+    if (displacement > 20) {
+
+      displacement =
+        displacement / 1000;
+
+    }
+
+  }
+
+
+  /*
+   * =====================================================
+   * KRAFTSTOFF
+   * =====================================================
+   */
 
   const fuel =
-    findValue(vehicle, [
+    getValue([
       "fuel",
       "fuel_type",
-      "fuelType"
+      "fuelType",
+      "Kraftstoff",
+      "Kraftstoffart"
     ]);
+
+
+  /*
+   * =====================================================
+   * GETRIEBE
+   * =====================================================
+   */
 
   const transmission =
-    findValue(vehicle, [
+    getValue([
       "transmission",
-      "gearbox"
+      "gearbox",
+      "Getriebe"
     ]);
+
+
+  /*
+   * =====================================================
+   * HSN / TSN
+   * =====================================================
+   */
 
   const hsn =
-    findValue(vehicle, [
-      "hsn"
+    getValue([
+      "hsn",
+      "HSN"
     ]);
+
 
   const tsn =
-    findValue(vehicle, [
-      "tsn"
+    getValue([
+      "tsn",
+      "TSN"
     ]);
 
+
+  /*
+   * =====================================================
+   * ERGEBNIS
+   * =====================================================
+   */
+
   return {
+
     raw: vehicle,
-    brand,
-    model,
-    generation,
-    engine,
-    year,
-    power,
-    displacement,
-    fuel,
-    transmission,
-    hsn,
-    tsn
+
+    brand:
+      brand,
+
+    model:
+      model,
+
+    generation:
+      generation,
+
+    engine:
+      engine,
+
+    year:
+      year,
+
+    power:
+      Number.isFinite(Number(power))
+        ? Number(power)
+        : power,
+
+    displacement:
+      Number.isFinite(Number(displacement))
+        ? Number(displacement)
+        : displacement,
+
+    fuel:
+      fuel,
+
+    transmission:
+      transmission,
+
+    hsn:
+      hsn,
+
+    tsn:
+      tsn
+
   };
 
 }
-
 
 /* =========================================================
    FAHRZEUG ANZEIGEN
@@ -839,57 +1165,60 @@ function renderVehicle(
 
     </div>
 
+<div class="vehicle-specs">
 
-    <div class="vehicle-specs">
+  <div>
+    <strong>
+      ${escapeHtml(
+        vehicle.year ?? "–"
+      )}
+    </strong>
+    <small>Baujahr</small>
+  </div>
 
-      <div>
-        <strong>
-          ${escapeHtml(
-            vehicle.year ?? "–"
-          )}
-        </strong>
-        <small>Baujahr</small>
-      </div>
 
-      <div>
-        <strong>
-          ${escapeHtml(
-            vehicle.power
-              ? formatNumber(
-                  vehicle.power
-                )
-              : "–"
-          )}
-          ${vehicle.power ? " PS" : ""}
-        </strong>
-        <small>Leistung</small>
-      </div>
+  <div>
+    <strong>
+      ${
+        vehicle.power !== null &&
+        vehicle.power !== undefined &&
+        vehicle.power !== ""
+          ? `${formatNumber(vehicle.power)} PS`
+          : "–"
+      }
+    </strong>
+    <small>Leistung</small>
+  </div>
 
-      <div>
-        <strong>
-          ${escapeHtml(
-            vehicle.displacement
-              ? formatNumber(
-                  vehicle.displacement,
-                  1
-                )
-              : "–"
-          )}
-          ${vehicle.displacement ? " L" : ""}
-        </strong>
-        <small>Hubraum</small>
-      </div>
 
-      <div>
-        <strong>
-          ${escapeHtml(
-            vehicle.fuel || "–"
-          )}
-        </strong>
-        <small>Kraftstoff</small>
-      </div>
+  <div>
+    <strong>
+      ${
+        vehicle.displacement !== null &&
+        vehicle.displacement !== undefined &&
+        vehicle.displacement !== ""
+          ? `${formatNumber(
+              vehicle.displacement,
+              1
+            )} L`
+          : "–"
+      }
+    </strong>
+    <small>Hubraum</small>
+  </div>
 
-    </div>
+
+  <div>
+    <strong>
+      ${escapeHtml(
+        vehicle.fuel || "–"
+      )}
+    </strong>
+    <small>Kraftstoff</small>
+  </div>
+
+</div>
+  
   `;
 
   container.classList.remove(
