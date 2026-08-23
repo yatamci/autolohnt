@@ -884,3 +884,68 @@ footer {
   }
 
 }
+
+/* =========================================================
+   AUTO COST CHECK – KLEINE LAYOUT-KORREKTUREN
+========================================================= */
+
+
+/* ---------------------------------------------------------
+   DATUMSFELDER
+   Kaufdatum und Erstzulassung exakt auf Feldbreite
+   der übrigen Eingabefelder begrenzen.
+--------------------------------------------------------- */
+
+#currentPurchaseDate,
+#newRegistrationDate {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+
+/*
+ * Auch das Label darf das Grid nicht künstlich
+ * verbreitern.
+ */
+
+label:has(#currentPurchaseDate),
+label:has(#newRegistrationDate) {
+  min-width: 0;
+}
+
+
+/* ---------------------------------------------------------
+   GESPEICHERTE AUTOS
+   Laden und Löschen immer untereinander
+--------------------------------------------------------- */
+
+.saved .actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+
+/*
+ * Beide Buttons erhalten dieselbe Breite.
+ */
+
+.saved .actions .btn {
+  width: 100%;
+  min-width: 120px;
+  box-sizing: border-box;
+}
+
+
+/* ---------------------------------------------------------
+   „Keine Fahrzeugdaten“ sauber darstellen
+--------------------------------------------------------- */
+
+.saved-subtitle {
+  display: block;
+  line-height: 1.35;
+}
