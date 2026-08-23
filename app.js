@@ -115,216 +115,6 @@ function escapeHtml(value) {
 
 }
 
-
-/* =========================================================
-   API CACHE
-========================================================= */
-
-const API_CACHE_KEY =
-  "autoCostCheck_apiCache_v1";
-
-const API_CACHE_TTL =
-  30 * 24 * 60 * 60 * 1000;
-
-const API_CACHE_MAX_ENTRIES = 500;
-
-const apiInFlight = new Map();
-
-
-function getApiCache() {
-
-  try {
-
-    const raw =
-      localStorage.getItem(
-        API_CACHE_KEY
-      );
-
-    if (!raw) return {};
-
-    const parsed =
-      JSON.parse(raw);
-
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      return {};
-    }
-
-    return parsed;
-
-  } catch {
-
-    return {};
-
-  }
-
-}
-
-
-function saveApiCache(cache) {
-
-  try {
-
-    localStorage.setItem(
-      API_CACHE_KEY,
-      JSON.stringify(cache)
-    );
-
-  } catch (error) {
-
-    console.warn(
-      "API-Cache konnte nicht gespeichert werden:",
-      error
-    );
-
-  }
-
-}
-
-
-function cleanupApiCache(cache) {
-
-  const now =
-    Date.now();
-
-  const entries =
-    Object.entries(cache);
-
-  for (
-    const [key, entry]
-    of entries
-  ) {
-
-    if (
-      !entry ||
-      !entry.timestamp ||
-      now - entry.timestamp >
-        API_CACHE_TTL
-    ) {
-
-      delete cache[key];
-
-    }
-
-  }
-
-
-  const remaining =
-    Object.entries(cache);
-
-  if (
-    remaining.length >
-    API_CACHE_MAX_ENTRIES
-  ) {
-
-    remaining
-      .sort(
-        (a, b) =>
-          (a[1]?.timestamp || 0) -
-          (b[1]?.timestamp || 0)
-      )
-      .slice(
-        0,
-        remaining.length -
-        API_CACHE_MAX_ENTRIES
-      )
-      .forEach(
-        ([key]) => {
-          delete cache[key];
-        }
-      );
-
-  }
-
-  return cache;
-
-}
-
-
-function buildApiCacheKey(params = {}) {
-
-  const sorted =
-    Object.entries(params)
-      .filter(
-        ([, value]) =>
-          value !== undefined &&
-          value !== null &&
-          String(value).trim() !== ""
-      )
-      .sort(
-        ([a], [b]) =>
-          a.localeCompare(b)
-      );
-
-  return JSON.stringify(sorted);
-
-}
-
-
-function getCachedApiResult(key) {
-
-  const cache =
-    cleanupApiCache(
-      getApiCache()
-    );
-
-  const entry =
-    cache[key];
-
-  if (!entry) {
-
-    saveApiCache(cache);
-
-    return null;
-
-  }
-
-  if (
-    !entry.timestamp ||
-    Date.now() -
-      entry.timestamp >
-      API_CACHE_TTL
-  ) {
-
-    delete cache[key];
-
-    saveApiCache(cache);
-
-    return null;
-
-  }
-
-  saveApiCache(cache);
-
-  return entry.data;
-
-}
-
-
-function setCachedApiResult(
-  key,
-  data
-) {
-
-  const cache =
-    cleanupApiCache(
-      getApiCache()
-    );
-
-  cache[key] = {
-    timestamp: Date.now(),
-    data
-  };
-
-  saveApiCache(
-    cleanupApiCache(cache)
-  );
-
-}
-
 /* =========================================================
    API + CACHE
 ========================================================= */
@@ -3591,7 +3381,7 @@ function renderSavedCars() {
                 ]
                   .filter(Boolean)
                   .join(" - ")
-              : "Keine-Fahrzeugdaten";
+              : "Keine Fahrzeugdaten";
 
 
           const kmText =
@@ -3632,13 +3422,13 @@ function renderSavedCars() {
                 </strong>
 
                 <small
-                  style="
-                    display:block;
-                    white-space:normal;
-                    overflow-wrap:anywhere;
-                    word-break:break-word;
-                  "
-                >
+  style="
+    display:block;
+    white-space:normal;
+    overflow-wrap:normal;
+    word-break:normal;
+  "
+>
                   ${escapeHtml(
                     description
                   )}
