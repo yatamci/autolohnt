@@ -325,58 +325,225 @@ function setCachedApiResult(
 
 }
 
-
 /* =========================================================
-   API
+   API + CACHE
 ========================================================= */
 
-async function apiRequest(params = {}) {
+/*
+ * Fahrzeugdaten ändern sich nur selten.
+ * Deshalb werden erfolgreiche API-Antworten lokal
+ * im Browser zwischengespeichert.
+ *
+ * Vorteile:
+ * - gleiche Abfrage verursacht 30 Tage lang keinen neuen API-Call
+ * - Marken werden nur einmal geladen
+ * - Modelle werden gecacht
+ * - Generationen werden gecacht
+ * - Motorisierungen werden gecacht
+ * - HSN/TSN-Abfragen werden gecacht
+ * - Fahrzeugabfragen werden gecacht
+ * - identische parallele Anfragen werden zusammengeführt
+ */
+
+const API_CACHE_PREFIX =
+  "autoCostCheck_apiCache_v1:";
+
+const API_CACHE_TTL =
+  1000 * 60 * 60 * 24 * 30;
+
+const API_IN_FLIGHT =
+  new Map();
+
+
+/* =========================================================
+   CACHE-SCHLÜSSEL
+========================================================= */
+
+function apiCacheKey(params = {}) {
+
+  const normalized = {};
+
+  Object.keys(params)
+    .sort()
+    .forEach(key => {
+
+      const value =
+        params[key];
+
+      if (
+        value !== undefined &&
+        value !== null &&
+        String(value).trim() !== ""
+      ) {
+
+        normalized[key] =
+          String(value).trim();
+
+      }
+
+    });
+
+  return (
+    API_CACHE_PREFIX +
+    JSON.stringify(normalized)
+  );
+}
+
+
+/* =========================================================
+   CACHE LESEN
+========================================================= */
+
+function getApiCache(key) {
+
+  try {
+
+    const raw =
+      localStorage.getItem(key);
+
+    if (!raw) {
+      return {
+        hit: false
+      };
+    }
+
+    const cached =
+      JSON.parse(raw);
+
+    if (
+      !cached ||
+      !cached.timestamp
+    ) {
+
+      localStorage.removeItem(key);
+
+      return {
+        hit: false
+      };
+
+    }
+
+    /*
+     * Cache ist abgelaufen
+     */
+
+    if (
+      Date.now() -
+      cached.timestamp >
+      API_CACHE_TTL
+    ) {
+
+      localStorage.removeItem(key);
+
+      return {
+        hit: false
+      };
+
+    }
+
+    return {
+      hit: true,
+      data: cached.data
+    };
+
+  } catch {
+
+    return {
+      hit: false
+    };
+
+  }
+
+}
+
+
+/* =========================================================
+   CACHE SPEICHERN
+========================================================= */
+
+function setApiCache(
+  key,
+  data
+) {
+
+  try {
+
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        timestamp: Date.now(),
+        data
+      })
+    );
+
+  } catch (error) {
+
+    /*
+     * Falls localStorage voll ist,
+     * soll die Anwendung trotzdem funktionieren.
+     */
+
+    console.warn(
+      "API-Cache konnte nicht gespeichert werden:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   API REQUEST
+========================================================= */
+
+async function apiRequest(
+  params = {}
+) {
 
   const cacheKey =
-    buildApiCacheKey(params);
+    apiCacheKey(params);
 
 
-  /*
-   * 1. Bereits gespeicherte Antwort verwenden.
-   */
+  /* ======================================================
+     1. CACHE PRÜFEN
+  ====================================================== */
 
   const cached =
-    getCachedApiResult(
-      cacheKey
-    );
+    getApiCache(cacheKey);
 
-  if (cached !== null) {
+  if (cached.hit) {
 
-    return cached;
+    return cached.data;
 
   }
 
 
-  /*
-   * 2. Falls exakt dieselbe Anfrage bereits
-   *    läuft, auf diese Anfrage warten.
-   */
+  /* ======================================================
+     2. GLEICHZEITIGE DOPPELTE ANFRAGEN VERHINDERN
+  ====================================================== */
 
   if (
-    apiInFlight.has(cacheKey)
+    API_IN_FLIGHT.has(cacheKey)
   ) {
 
-    return apiInFlight.get(
+    return API_IN_FLIGHT.get(
       cacheKey
     );
 
   }
 
 
-  /*
-   * 3. Neue Anfrage starten.
-   */
+  /* ======================================================
+     3. API-ANFRAGE
+  ====================================================== */
 
   const request =
     (async () => {
 
       const query =
         new URLSearchParams();
+
 
       Object.entries(params)
         .forEach(
@@ -404,8 +571,10 @@ async function apiRequest(params = {}) {
           `${API_URL}?${query.toString()}`,
           {
             method: "GET",
+
             headers: {
-              Accept: "application/json"
+              Accept:
+                "application/json"
             }
           }
         );
@@ -449,10 +618,11 @@ async function apiRequest(params = {}) {
 
 
       /*
-       * Nur erfolgreiche Antworten speichern.
+       * Nur erfolgreiche Antworten
+       * werden gespeichert.
        */
 
-      setCachedApiResult(
+      setApiCache(
         cacheKey,
         result
       );
@@ -463,7 +633,7 @@ async function apiRequest(params = {}) {
     })();
 
 
-  apiInFlight.set(
+  API_IN_FLIGHT.set(
     cacheKey,
     request
   );
@@ -475,14 +645,13 @@ async function apiRequest(params = {}) {
 
   } finally {
 
-    apiInFlight.delete(
+    API_IN_FLIGHT.delete(
       cacheKey
     );
 
   }
 
 }
-
 
 /* =========================================================
    STATUS
@@ -4107,17 +4276,58 @@ async function init() {
 
 
   /*
-   * Marken beim Start laden.
-   *
-   * Durch den Cache wird diese Anfrage nach
-   * dem ersten erfolgreichen Laden nicht mehr
-   * bei jedem Seitenaufruf an die API geschickt.
-   */
+ * Marken nur EINMAL laden und direkt
+ * in beide Auswahlfelder übernehmen.
+ *
+ * Die alte Version hat beim Start
+ * zwei identische API-Abfragen ausgelöst.
+ */
 
-  await Promise.allSettled([
-    loadBrands("current"),
-    loadBrands("new")
-  ]);
+try {
+
+  const data =
+    await apiRequest({
+      action: "brands"
+    });
+
+
+  let brands =
+    data;
+
+
+  if (
+    !Array.isArray(brands) &&
+    Array.isArray(data?.brands)
+  ) {
+
+    brands =
+      data.brands;
+
+  }
+
+
+  fillSelect(
+    "currentBrandSelect",
+    brands,
+    "Marke auswählen"
+  );
+
+
+  fillSelect(
+    "newBrandSelect",
+    brands,
+    "Marke auswählen"
+  );
+
+
+} catch (error) {
+
+  console.error(
+    "Marken konnten nicht geladen werden:",
+    error
+  );
+
+}
 
 }
 
