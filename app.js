@@ -5,26 +5,28 @@
 
 "use strict";
 
-
-/* =========================================================
-   HILFSFUNKTIONEN
-========================================================= */
-
 const $ = (id) => document.getElementById(id);
 
 const API_URL = "/api/vehicle-search";
 
+/* =========================================================
+   CACHE
+========================================================= */
+
+const CACHE_PREFIX = "acc_";
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+/* =========================================================
+   HILFSFUNKTIONEN
+========================================================= */
 
 function clean(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
 }
 
-
 function numberValue(id) {
-
   const el = $(id);
-
   if (!el) return null;
 
   const value = parseFloat(
@@ -32,27 +34,19 @@ function numberValue(id) {
   );
 
   return Number.isFinite(value) ? value : null;
-
 }
 
-
 function setValue(id, value) {
-
   const el = $(id);
-
   if (!el) return;
 
   el.value =
-    value === undefined ||
-    value === null
+    value === undefined || value === null
       ? ""
       : value;
-
 }
 
-
 function formatNumber(value, decimals = 0) {
-
   if (
     value === undefined ||
     value === null ||
@@ -65,12 +59,9 @@ function formatNumber(value, decimals = 0) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   }).format(Number(value));
-
 }
 
-
 function formatEuro(value) {
-
   if (
     value === undefined ||
     value === null ||
@@ -85,12 +76,9 @@ function formatEuro(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(Number(value));
-
 }
 
-
 function formatKm(value) {
-
   if (
     value === undefined ||
     value === null ||
@@ -100,347 +88,143 @@ function formatKm(value) {
   }
 
   return `${formatNumber(value)} km`;
-
 }
 
-
 function escapeHtml(value) {
-
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
-
 }
 
 /* =========================================================
-   API + CACHE
+   LOCAL CACHE
 ========================================================= */
 
-/*
- * Fahrzeugdaten ändern sich nur selten.
- * Deshalb werden erfolgreiche API-Antworten lokal
- * im Browser zwischengespeichert.
- *
- * Vorteile:
- * - gleiche Abfrage verursacht 30 Tage lang keinen neuen API-Call
- * - Marken werden nur einmal geladen
- * - Modelle werden gecacht
- * - Generationen werden gecacht
- * - Motorisierungen werden gecacht
- * - HSN/TSN-Abfragen werden gecacht
- * - Fahrzeugabfragen werden gecacht
- * - identische parallele Anfragen werden zusammengeführt
- */
+function cacheKey(params) {
+  return CACHE_PREFIX + JSON.stringify(
+    Object.keys(params)
+      .sort()
+      .reduce((obj, key) => {
+        obj[key] = params[key];
+        return obj;
+      }, {})
+  );
+}
 
-const API_CACHE_PREFIX =
-  "autoCostCheck_apiCache_v1:";
+function getCache(params) {
+  try {
+    const raw = localStorage.getItem(cacheKey(params));
 
-const API_CACHE_TTL =
-  1000 * 60 * 60 * 24 * 30;
+    if (!raw) return null;
 
-const API_IN_FLIGHT =
-  new Map();
+    const item = JSON.parse(raw);
 
+    if (
+      !item ||
+      !item.time ||
+      Date.now() - item.time > CACHE_TTL
+    ) {
+      localStorage.removeItem(cacheKey(params));
+      return null;
+    }
+
+    return item.data;
+  } catch {
+    return null;
+  }
+}
+
+function setCache(params, data) {
+  try {
+    localStorage.setItem(
+      cacheKey(params),
+      JSON.stringify({
+        time: Date.now(),
+        data
+      })
+    );
+  } catch {
+    /* Cache ist optional. */
+  }
+}
 
 /* =========================================================
-   CACHE-SCHLÜSSEL
+   API REQUEST
 ========================================================= */
 
-function apiCacheKey(params = {}) {
+async function apiRequest(params = {}, options = {}) {
 
-  const normalized = {};
+  const useCache = options.cache !== false;
 
-  Object.keys(params)
-    .sort()
-    .forEach(key => {
+  if (useCache) {
+    const cached = getCache(params);
 
-      const value =
-        params[key];
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(
+    ([key, value]) => {
 
       if (
         value !== undefined &&
         value !== null &&
         String(value).trim() !== ""
       ) {
-
-        normalized[key] =
-          String(value).trim();
-
+        query.set(
+          key,
+          String(value).trim()
+        );
       }
 
-    });
-
-  return (
-    API_CACHE_PREFIX +
-    JSON.stringify(normalized)
+    }
   );
-}
 
+  const response = await fetch(
+    `${API_URL}?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    }
+  );
 
-/* =========================================================
-   CACHE LESEN
-========================================================= */
-
-function getApiCache(key) {
+  let data;
 
   try {
-
-    const raw =
-      localStorage.getItem(key);
-
-    if (!raw) {
-      return {
-        hit: false
-      };
-    }
-
-    const cached =
-      JSON.parse(raw);
-
-    if (
-      !cached ||
-      !cached.timestamp
-    ) {
-
-      localStorage.removeItem(key);
-
-      return {
-        hit: false
-      };
-
-    }
-
-    /*
-     * Cache ist abgelaufen
-     */
-
-    if (
-      Date.now() -
-      cached.timestamp >
-      API_CACHE_TTL
-    ) {
-
-      localStorage.removeItem(key);
-
-      return {
-        hit: false
-      };
-
-    }
-
-    return {
-      hit: true,
-      data: cached.data
-    };
-
+    data = await response.json();
   } catch {
-
-    return {
-      hit: false
-    };
-
-  }
-
-}
-
-
-/* =========================================================
-   CACHE SPEICHERN
-========================================================= */
-
-function setApiCache(
-  key,
-  data
-) {
-
-  try {
-
-    localStorage.setItem(
-      key,
-      JSON.stringify({
-        timestamp: Date.now(),
-        data
-      })
+    throw new Error(
+      "Ungültige Antwort vom Server."
     );
-
-  } catch (error) {
-
-    /*
-     * Falls localStorage voll ist,
-     * soll die Anwendung trotzdem funktionieren.
-     */
-
-    console.warn(
-      "API-Cache konnte nicht gespeichert werden:",
-      error
-    );
-
   }
-
-}
-
-
-/* =========================================================
-   API REQUEST
-========================================================= */
-
-async function apiRequest(
-  params = {}
-) {
-
-  const cacheKey =
-    apiCacheKey(params);
-
-
-  /* ======================================================
-     1. CACHE PRÜFEN
-  ====================================================== */
-
-  const cached =
-    getApiCache(cacheKey);
-
-  if (cached.hit) {
-
-    return cached.data;
-
-  }
-
-
-  /* ======================================================
-     2. GLEICHZEITIGE DOPPELTE ANFRAGEN VERHINDERN
-  ====================================================== */
 
   if (
-    API_IN_FLIGHT.has(cacheKey)
+    !response.ok ||
+    data?.success === false
   ) {
-
-    return API_IN_FLIGHT.get(
-      cacheKey
+    throw new Error(
+      data?.error ||
+      data?.message ||
+      `Serverfehler (${response.status})`
     );
-
   }
 
+  const result =
+    data?.data ?? data;
 
-  /* ======================================================
-     3. API-ANFRAGE
-  ====================================================== */
-
-  const request =
-    (async () => {
-
-      const query =
-        new URLSearchParams();
-
-
-      Object.entries(params)
-        .forEach(
-          ([key, value]) => {
-
-            if (
-              value !== undefined &&
-              value !== null &&
-              String(value).trim() !== ""
-            ) {
-
-              query.set(
-                key,
-                String(value).trim()
-              );
-
-            }
-
-          }
-        );
-
-
-      const response =
-        await fetch(
-          `${API_URL}?${query.toString()}`,
-          {
-            method: "GET",
-
-            headers: {
-              Accept:
-                "application/json"
-            }
-          }
-        );
-
-
-      let data = null;
-
-
-      try {
-
-        data =
-          await response.json();
-
-      } catch {
-
-        data = {
-          success: false,
-          error:
-            "Ungültige Antwort vom Server."
-        };
-
-      }
-
-
-      if (
-        !response.ok ||
-        data?.success === false
-      ) {
-
-        throw new Error(
-          data?.error ||
-          data?.message ||
-          `Serverfehler (${response.status})`
-        );
-
-      }
-
-
-      const result =
-        data?.data ?? data;
-
-
-      /*
-       * Nur erfolgreiche Antworten
-       * werden gespeichert.
-       */
-
-      setApiCache(
-        cacheKey,
-        result
-      );
-
-
-      return result;
-
-    })();
-
-
-  API_IN_FLIGHT.set(
-    cacheKey,
-    request
-  );
-
-
-  try {
-
-    return await request;
-
-  } finally {
-
-    API_IN_FLIGHT.delete(
-      cacheKey
-    );
-
+  if (useCache) {
+    setCache(params, result);
   }
 
+  return result;
 }
 
 /* =========================================================
@@ -452,7 +236,6 @@ function showStatus(
   message,
   type = "loading"
 ) {
-
   const element = $(id);
 
   if (!element) return;
@@ -460,124 +243,83 @@ function showStatus(
   element.className =
     `api-status ${type}`;
 
-  element.textContent =
-    message;
+  element.textContent = message;
 
+  element.classList.remove("hidden");
 }
 
-
 function hideStatus(id) {
-
   const element = $(id);
 
   if (!element) return;
 
   element.classList.add("hidden");
   element.textContent = "";
-
 }
 
-
 function showElement(id) {
-
   const element = $(id);
 
   if (element) {
     element.classList.remove("hidden");
   }
-
 }
 
-
 function hideElement(id) {
-
   const element = $(id);
 
   if (element) {
     element.classList.add("hidden");
   }
-
 }
-
 
 /* =========================================================
    TABS
 ========================================================= */
 
-function showSection(
-  target
-) {
-
-  const sections = [
-    "currentCarSection",
-    "newCarSection",
-    "savedSection"
-  ];
-
-
-  sections.forEach(
-    id => {
-
-      const section =
-        $(id);
-
-      if (!section) return;
-
-      section.classList.toggle(
-        "hidden",
-        id !== target
-      );
-
-    }
-  );
-
-
-  document
-    .querySelectorAll(
-      ".tabs .tab"
-    )
-    .forEach(
-      tab => {
-
-        tab.classList.toggle(
-          "active",
-          tab.dataset.target ===
-            target
-        );
-
-      }
-    );
-
-}
-
-
 function initMainTabs() {
 
-  const tabs =
-    document.querySelectorAll(
-      ".tabs .tab"
-    );
-
-
-  tabs.forEach(
-    tab => {
+  document
+    .querySelectorAll(".tabs .tab")
+    .forEach(tab => {
 
       tab.addEventListener(
         "click",
         () => {
 
-          showSection(
-            tab.dataset.target
-          );
+          const target =
+            tab.dataset.target;
+
+          document
+            .querySelectorAll(".tabs .tab")
+            .forEach(t =>
+              t.classList.remove("active")
+            );
+
+          tab.classList.add("active");
+
+          [
+            "currentCarSection",
+            "newCarSection",
+            "savedSection"
+          ].forEach(id => {
+
+            const section = $(id);
+
+            if (!section) return;
+
+            section.classList.toggle(
+              "hidden",
+              id !== target
+            );
+
+          });
 
         }
       );
 
-    }
-  );
-
+    });
 }
-
 
 /* =========================================================
    SUCH-TABS
@@ -586,78 +328,56 @@ function initMainTabs() {
 function initSearchTabs() {
 
   document
-    .querySelectorAll(
-      ".search-tabs"
-    )
-    .forEach(
-      container => {
+    .querySelectorAll(".search-tabs")
+    .forEach(container => {
 
-        const tabs =
-          container.querySelectorAll(
-            ".search-tab"
-          );
+      const tabs =
+        container.querySelectorAll(
+          ".search-tab"
+        );
 
+      tabs.forEach(tab => {
 
-        tabs.forEach(
-          tab => {
+        tab.addEventListener(
+          "click",
+          () => {
 
-            tab.addEventListener(
-              "click",
-              () => {
+            const panelId =
+              tab.dataset.panel;
 
-                const panelId =
-                  tab.dataset.panel;
-
-
-                tabs.forEach(
-                  t =>
-                    t.classList.remove(
-                      "active"
-                    )
-                );
-
-
-                tab.classList.add(
-                  "active"
-                );
-
-
-                const parent =
-                  tab.closest(
-                    ".vehicle-search"
-                  );
-
-
-                if (!parent) return;
-
-
-                parent
-                  .querySelectorAll(
-                    ".search-panel"
-                  )
-                  .forEach(
-                    panel => {
-
-                      panel.classList.toggle(
-                        "hidden",
-                        panel.id !==
-                          panelId
-                      );
-
-                    }
-                  );
-
-              }
+            tabs.forEach(t =>
+              t.classList.remove("active")
             );
+
+            tab.classList.add("active");
+
+            const parent =
+              tab.closest(
+                ".vehicle-search"
+              );
+
+            if (!parent) return;
+
+            parent
+              .querySelectorAll(
+                ".search-panel"
+              )
+              .forEach(panel => {
+
+                panel.classList.toggle(
+                  "hidden",
+                  panel.id !== panelId
+                );
+
+              });
 
           }
         );
 
-      }
-    );
+      });
 
+    });
 }
-
 
 /* =========================================================
    DARK MODE
@@ -670,16 +390,12 @@ function initTheme() {
 
   if (!button) return;
 
-
   const saved =
     localStorage.getItem(
       "acc_theme"
     );
 
-
-  if (
-    saved === "dark"
-  ) {
+  if (saved === "dark") {
 
     document.documentElement
       .setAttribute(
@@ -687,11 +403,9 @@ function initTheme() {
         "dark"
       );
 
-    button.textContent =
-      "☀️";
+    button.textContent = "☀️";
 
   }
-
 
   button.addEventListener(
     "click",
@@ -702,7 +416,6 @@ function initTheme() {
           .getAttribute(
             "data-theme"
           ) === "dark";
-
 
       if (dark) {
 
@@ -716,8 +429,7 @@ function initTheme() {
           "light"
         );
 
-        button.textContent =
-          "🌙";
+        button.textContent = "🌙";
 
       } else {
 
@@ -732,16 +444,13 @@ function initTheme() {
           "dark"
         );
 
-        button.textContent =
-          "☀️";
+        button.textContent = "☀️";
 
       }
 
     }
   );
-
 }
-
 
 /* =========================================================
    SELECT HELFER
@@ -752,14 +461,11 @@ function clearSelect(
   placeholder
 ) {
 
-  const select =
-    $(id);
+  const select = $(id);
 
   if (!select) return;
 
-
   select.innerHTML = "";
-
 
   const option =
     document.createElement(
@@ -770,33 +476,22 @@ function clearSelect(
   option.textContent =
     placeholder;
 
-
-  select.appendChild(
-    option
-  );
-
+  select.appendChild(option);
 
   select.disabled = true;
-
 }
-
 
 function fillSelect(
   id,
   items,
-  placeholder,
-  valueKey = null,
-  labelKey = null
+  placeholder
 ) {
 
-  const select =
-    $(id);
+  const select = $(id);
 
   if (!select) return;
 
-
   select.innerHTML = "";
-
 
   const first =
     document.createElement(
@@ -807,117 +502,78 @@ function fillSelect(
   first.textContent =
     placeholder;
 
-
-  select.appendChild(
-    first
-  );
-
+  select.appendChild(first);
 
   if (!Array.isArray(items)) {
-
     select.disabled = true;
-
     return;
-
   }
 
+  items.forEach(item => {
 
-  items.forEach(
-    item => {
+    let value;
+    let label;
 
-      let value;
-      let label;
+    if (typeof item === "string") {
 
+      value = item;
+      label = item;
 
-      if (
-        typeof item ===
-        "string"
-      ) {
+    } else {
 
-        value = item;
-        label = item;
+      value =
+        item?.id ??
+        item?.name ??
+        item?.value ??
+        item?.model ??
+        item?.brand;
 
-      } else {
-
-        value =
-          valueKey
-            ? item?.[valueKey]
-            : (
-                item?.id ??
-                item?.slug ??
-                item?.name ??
-                item?.value ??
-                item?.model ??
-                item?.brand
-              );
-
-
-        label =
-          labelKey
-            ? item?.[labelKey]
-            : (
-                item?.name ??
-                item?.label ??
-                item?.model ??
-                item?.brand ??
-                item?.title ??
-                value
-              );
-
-      }
-
-
-      if (
-        value === undefined ||
-        value === null ||
-        String(value).trim() === ""
-      ) {
-        return;
-      }
-
-
-      const option =
-        document.createElement(
-          "option"
-        );
-
-
-      option.value =
+      label =
+        item?.name ??
+        item?.label ??
+        item?.model ??
+        item?.brand ??
+        item?.title ??
         value;
 
-      option.textContent =
-        label ?? value;
+    }
 
+    if (
+      value === undefined ||
+      value === null ||
+      String(value).trim() === ""
+    ) {
+      return;
+    }
 
-      select.appendChild(
-        option
+    const option =
+      document.createElement(
+        "option"
       );
 
-    }
-  );
+    option.value = value;
+    option.textContent =
+      label ?? value;
 
+    select.appendChild(option);
+
+  });
 
   select.disabled =
     select.options.length <= 1;
-
 }
 
-
 /* =========================================================
-   API DATEN NORMALISIEREN
+   VEHICLE NORMALISIERUNG
 ========================================================= */
 
 function unwrapVehicle(data) {
 
   if (!data) return null;
 
-
   if (Array.isArray(data)) {
-
     return data[0] || null;
-
   }
-
 
   if (data.vehicle) {
     return unwrapVehicle(
@@ -925,57 +581,11 @@ function unwrapVehicle(data) {
     );
   }
 
-
-  if (data.vehicle_data) {
-    return unwrapVehicle(
-      data.vehicle_data
-    );
-  }
-
-
-  if (data.vehicleData) {
-    return unwrapVehicle(
-      data.vehicleData
-    );
-  }
-
-
-  if (data.specifications) {
-
-    return {
-      ...data,
-      ...data.specifications
-    };
-
-  }
-
-
-  if (data.technical_data) {
-
-    return {
-      ...data,
-      ...data.technical_data
-    };
-
-  }
-
-
-  if (data.technicalData) {
-
-    return {
-      ...data,
-      ...data.technicalData
-    };
-
-  }
-
-
   if (data.data) {
     return unwrapVehicle(
       data.data
     );
   }
-
 
   if (data.result) {
     return unwrapVehicle(
@@ -983,28 +593,16 @@ function unwrapVehicle(data) {
     );
   }
 
-
   if (
-    data.results &&
-    Array.isArray(data.results)
+    Array.isArray(
+      data.results
+    )
   ) {
-
-    return (
-      data.results[0] ||
-      null
-    );
-
+    return data.results[0] || null;
   }
 
-
   return data;
-
 }
-
-
-/*
- * Direkte Suche nach einem Wert.
- */
 
 function findValue(
   object,
@@ -1018,452 +616,141 @@ function findValue(
     return null;
   }
 
-
-  for (
-    const key of keys
-  ) {
+  for (const key of keys) {
 
     if (
       object[key] !== undefined &&
       object[key] !== null &&
       object[key] !== ""
     ) {
-
       return object[key];
-
     }
 
   }
 
-
   return null;
-
 }
 
-
-/*
- * Tiefensuche:
- * Falls die API die Daten z. B. unter
- * specifications.engine.power_ps
- * oder technical_data.fuel_type
- * liefert, werden sie trotzdem gefunden.
- */
-
-function findValueDeep(
-  object,
-  keys,
-  depth = 0
-) {
-
-  if (
-    !object ||
-    typeof object !== "object" ||
-    depth > 6
-  ) {
-    return null;
-  }
-
-
-  const direct =
-    findValue(
-      object,
-      keys
-    );
-
-
-  if (
-    direct !== null &&
-    direct !== undefined &&
-    direct !== ""
-  ) {
-
-    return direct;
-
-  }
-
-
-  for (
-    const value
-    of Object.values(object)
-  ) {
-
-    if (
-      value &&
-      typeof value ===
-        "object"
-    ) {
-
-      const result =
-        findValueDeep(
-          value,
-          keys,
-          depth + 1
-        );
-
-
-      if (
-        result !== null &&
-        result !== undefined &&
-        result !== ""
-      ) {
-
-        return result;
-
-      }
-
-    }
-
-  }
-
-
-  return null;
-
-}
-
-
-/*
- * Zahlen aus Strings wie
- * "1.598 cm³", "1598 cc", "110 PS"
- * usw. besser herauslösen.
- */
-
-function extractNumber(
-  value
-) {
-
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    return null;
-  }
-
-
-  if (
-    typeof value ===
-    "number"
-  ) {
-
-    return Number.isFinite(
-      value
-    )
-      ? value
-      : null;
-
-  }
-
-
-  const normalized =
-    String(value)
-      .replace(",", ".")
-      .replace(
-        /[^\d.-]/g,
-        " "
-      )
-      .trim();
-
-
-  const match =
-    normalized.match(
-      /-?\d+(?:\.\d+)?/
-    );
-
-
-  if (!match) {
-    return null;
-  }
-
-
-  const number =
-    Number(
-      match[0]
-    );
-
-
-  return Number.isFinite(
-    number
-  )
-    ? number
-    : null;
-
-}
-
-
-/*
- * Hubraum normalisieren.
- * API kann Liter oder cm³ liefern.
- */
-
-function normalizeDisplacement(
-  value
-) {
-
-  const number =
-    extractNumber(
-      value
-    );
-
-
-  if (number === null) {
-    return null;
-  }
-
-
-  const text =
-    String(value)
-      .toLowerCase();
-
-
-  if (
-    text.includes("cc") ||
-    text.includes("cm3") ||
-    text.includes("cm³")
-  ) {
-
-    return number / 1000;
-
-  }
-
-
-  if (
-    number > 20
-  ) {
-
-    return number / 1000;
-
-  }
-
-
-  return number;
-
-}
-
-
-/* =========================================================
-   FAHRZEUG NORMALISIEREN
-========================================================= */
-
-function normalizeVehicle(
-  raw
-) {
+function normalizeVehicle(raw) {
 
   const vehicle =
-    unwrapVehicle(
-      raw
-    );
+    unwrapVehicle(raw);
 
-
-  if (!vehicle) {
-    return null;
-  }
-
-
-  const brand =
-    findValueDeep(
-      vehicle,
-      [
-        "brand",
-        "make",
-        "manufacturer",
-        "make_name",
-        "brand_name",
-        "manufacturer_name"
-      ]
-    );
-
-
-  const model =
-    findValueDeep(
-      vehicle,
-      [
-        "model",
-        "model_name",
-        "modelName"
-      ]
-    );
-
-
-  const generation =
-    findValueDeep(
-      vehicle,
-      [
-        "generation",
-        "generation_name",
-        "generationName",
-        "series",
-        "series_name"
-      ]
-    );
-
-
-  const engine =
-    findValueDeep(
-      vehicle,
-      [
-        "engine",
-        "engine_name",
-        "engine_type",
-        "engineName",
-        "version",
-        "trim"
-      ]
-    );
-
-
-  const year =
-    findValueDeep(
-      vehicle,
-      [
-        "year",
-        "model_year",
-        "production_year",
-        "registration_year",
-        "first_registration_year",
-        "manufacture_year",
-        "modelYear"
-      ]
-    );
-
-
-  const powerRaw =
-    findValueDeep(
-      vehicle,
-      [
-        "power_ps",
-        "powerPS",
-        "ps",
-        "hp",
-        "horsepower",
-        "power",
-        "power_hp",
-        "engine_power",
-        "kw"
-      ]
-    );
-
-
-  let power =
-    extractNumber(
-      powerRaw
-    );
-
-
-  /*
-   * Falls nur kW geliefert werden:
-   * kW × 1,35962 ≈ PS
-   */
-
-  if (
-    power !== null &&
-    powerRaw !== null &&
-    String(powerRaw)
-      .toLowerCase()
-      .includes("kw")
-  ) {
-
-    power =
-      power * 1.35962;
-
-  }
-
-
-  const displacementRaw =
-    findValueDeep(
-      vehicle,
-      [
-        "displacement_l",
-        "engine_displacement_l",
-        "displacement",
-        "engine_displacement",
-        "engine_capacity",
-        "capacity",
-        "cc",
-        "engine_cc"
-      ]
-    );
-
-
-  const displacement =
-    normalizeDisplacement(
-      displacementRaw
-    );
-
-
-  const fuel =
-    findValueDeep(
-      vehicle,
-      [
-        "fuel",
-        "fuel_type",
-        "fuelType",
-        "fuel_name",
-        "fuelName",
-        "engine_fuel"
-      ]
-    );
-
-
-  const transmission =
-    findValueDeep(
-      vehicle,
-      [
-        "transmission",
-        "gearbox",
-        "transmission_type",
-        "gearbox_type"
-      ]
-    );
-
-
-  const hsn =
-    findValueDeep(
-      vehicle,
-      [
-        "hsn"
-      ]
-    );
-
-
-  const tsn =
-    findValueDeep(
-      vehicle,
-      [
-        "tsn"
-      ]
-    );
-
+  if (!vehicle) return null;
 
   return {
 
     raw: vehicle,
 
-    brand,
+    brand:
+      findValue(
+        vehicle,
+        [
+          "brand",
+          "make",
+          "manufacturer",
+          "make_name",
+          "MakeName"
+        ]
+      ),
 
-    model,
+    model:
+      findValue(
+        vehicle,
+        [
+          "model",
+          "model_name",
+          "Model_Name"
+        ]
+      ),
 
-    generation,
+    generation:
+      findValue(
+        vehicle,
+        [
+          "generation",
+          "generation_name",
+          "series"
+        ]
+      ),
 
-    engine,
+    engine:
+      findValue(
+        vehicle,
+        [
+          "engine",
+          "engine_name",
+          "engine_type"
+        ]
+      ),
 
-    year,
+    year:
+      findValue(
+        vehicle,
+        [
+          "year",
+          "model_year",
+          "production_year",
+          "registration_year",
+          "ModelYear"
+        ]
+      ),
 
-    power,
+    power:
+      findValue(
+        vehicle,
+        [
+          "power_ps",
+          "ps",
+          "hp",
+          "horsepower",
+          "power"
+        ]
+      ),
 
-    displacement,
+    displacement:
+      findValue(
+        vehicle,
+        [
+          "displacement_l",
+          "engine_displacement_l",
+          "displacement"
+        ]
+      ),
 
-    fuel,
+    fuel:
+      findValue(
+        vehicle,
+        [
+          "fuel",
+          "fuel_type",
+          "fuelType"
+        ]
+      ),
 
-    transmission,
+    transmission:
+      findValue(
+        vehicle,
+        [
+          "transmission",
+          "gearbox"
+        ]
+      ),
 
-    hsn,
+    hsn:
+      findValue(
+        vehicle,
+        ["hsn"]
+      ),
 
-    tsn
+    tsn:
+      findValue(
+        vehicle,
+        ["tsn"]
+      )
 
   };
-
 }
-
 
 /* =========================================================
    FAHRZEUG ANZEIGEN
@@ -1477,17 +764,19 @@ function renderVehicle(
   const container =
     $(containerId);
 
-
   if (!container) return;
-
 
   if (!vehicle) {
 
     container.innerHTML = `
       <div class="result red">
-        <strong>Kein Fahrzeug gefunden</strong>
+        <strong>
+          Kein Fahrzeug gefunden
+        </strong>
+
         <p>
-          Die API hat kein passendes Fahrzeug geliefert.
+          Die Datenquelle hat kein
+          passendes Fahrzeug geliefert.
         </p>
       </div>
     `;
@@ -1497,9 +786,7 @@ function renderVehicle(
     );
 
     return;
-
   }
-
 
   const title =
     [
@@ -1509,7 +796,6 @@ function renderVehicle(
       .filter(Boolean)
       .join(" ");
 
-
   const subtitle =
     [
       vehicle.generation,
@@ -1518,19 +804,18 @@ function renderVehicle(
       .filter(Boolean)
       .join(" · ");
 
-
   container.innerHTML = `
-
     <div class="vehicle-header">
 
       <div>
 
-        <small>FAHRZEUG GEFUNDEN</small>
+        <small>
+          FAHRZEUG GEFUNDEN
+        </small>
 
         <h3>
           ${escapeHtml(
-            title ||
-            "Fahrzeug"
+            title || "Fahrzeug"
           )}
         </h3>
 
@@ -1549,90 +834,78 @@ function renderVehicle(
 
     </div>
 
-
     <div class="vehicle-specs">
 
       <div>
         <strong>
           ${escapeHtml(
-            vehicle.year ??
-            "–"
+            vehicle.year ?? "–"
           )}
         </strong>
-        <small>Baujahr</small>
+        <small>
+          Baujahr
+        </small>
       </div>
-
 
       <div>
         <strong>
-          ${escapeHtml(
-            vehicle.power
-              ? formatNumber(
-                  vehicle.power
-                )
-              : "–"
-          )}
           ${
             vehicle.power
-              ? " PS"
-              : ""
+              ? `${formatNumber(
+                  vehicle.power
+                )} PS`
+              : "–"
           }
         </strong>
-        <small>Leistung</small>
+        <small>
+          Leistung
+        </small>
       </div>
-
 
       <div>
         <strong>
-          ${escapeHtml(
+          ${
             vehicle.displacement
-              ? formatNumber(
+              ? `${formatNumber(
                   vehicle.displacement,
                   1
-                )
+                )} L`
               : "–"
-          )}
-          ${
-            vehicle.displacement
-              ? " L"
-              : ""
           }
         </strong>
-        <small>Hubraum</small>
+        <small>
+          Hubraum
+        </small>
       </div>
-
 
       <div>
         <strong>
           ${escapeHtml(
-            vehicle.fuel ||
-            "–"
+            vehicle.fuel || "–"
           )}
         </strong>
-        <small>Kraftstoff</small>
+        <small>
+          Kraftstoff
+        </small>
       </div>
 
     </div>
   `;
 
-
   container.classList.remove(
     "hidden"
   );
-
 }
 
-
 /* =========================================================
-   FAHRZEUG SPEICHERN
+   AKTUELLE FAHRZEUGE
 ========================================================= */
 
 let currentVehicle = null;
 let newVehicle = null;
 
-
 /* =========================================================
-   HSN / TSN SUCHE
+   HSN / TSN
 ========================================================= */
 
 async function searchVehicleByHsn(
@@ -1644,20 +917,16 @@ async function searchVehicleByHsn(
       ?.value
       .trim();
 
-
   const tsn =
     $(`${prefix}Tsn`)
       ?.value
       .trim();
 
-
   const statusId =
     `${prefix}ApiStatus`;
 
-
   const vehicleDataId =
     `${prefix}VehicleData`;
-
 
   if (!hsn || !tsn) {
 
@@ -1668,9 +937,7 @@ async function searchVehicleByHsn(
     );
 
     return;
-
   }
-
 
   showStatus(
     statusId,
@@ -1678,11 +945,9 @@ async function searchVehicleByHsn(
     "loading"
   );
 
-
   hideElement(
     vehicleDataId
   );
-
 
   try {
 
@@ -1693,33 +958,19 @@ async function searchVehicleByHsn(
         tsn
       });
 
-
     const vehicle =
-      normalizeVehicle(
-        data
-      );
+      normalizeVehicle(data);
 
-
-    if (
-      prefix === "current"
-    ) {
-
-      currentVehicle =
-        vehicle;
-
+    if (prefix === "current") {
+      currentVehicle = vehicle;
     } else {
-
-      newVehicle =
-        vehicle;
-
+      newVehicle = vehicle;
     }
-
 
     renderVehicle(
       vehicleDataId,
       vehicle
     );
-
 
     showStatus(
       statusId,
@@ -1727,22 +978,20 @@ async function searchVehicleByHsn(
       "success"
     );
 
-
   } catch (error) {
 
     showStatus(
       statusId,
-      error.message,
+      error.message ||
+        "Fahrzeug konnte nicht gefunden werden.",
       "error"
     );
 
   }
-
 }
 
-
 /* =========================================================
-   MARKEN LADEN
+   MARKEN
 ========================================================= */
 
 async function loadBrands(
@@ -1752,41 +1001,38 @@ async function loadBrands(
   const select =
     $(`${prefix}BrandSelect`);
 
-
   if (!select) return;
 
+  clearSelect(
+    `${prefix}BrandSelect`,
+    "Marke wird geladen …"
+  );
 
   try {
+
+    /*
+     * WICHTIG:
+     * Diese Anfrage geht jetzt über
+     * die kostenlose NHTSA/vPIC-Datenquelle.
+     *
+     * API4Cars wird hierfür nicht benutzt.
+     */
 
     const data =
       await apiRequest({
         action: "brands"
       });
 
-
-    let brands =
-      data;
-
-
-    if (
-      !Array.isArray(brands) &&
-      Array.isArray(
-        data?.brands
-      )
-    ) {
-
-      brands =
-        data.brands;
-
-    }
-
+    const brands =
+      Array.isArray(data)
+        ? data
+        : data?.brands || [];
 
     fillSelect(
       `${prefix}BrandSelect`,
       brands,
       "Marke auswählen"
     );
-
 
   } catch (error) {
 
@@ -1795,13 +1041,16 @@ async function loadBrands(
       error
     );
 
-  }
+    clearSelect(
+      `${prefix}BrandSelect`,
+      "Marken konnten nicht geladen werden"
+    );
 
+  }
 }
 
-
 /* =========================================================
-   MODELLE LADEN
+   MODELLE
 ========================================================= */
 
 async function loadModels(
@@ -1812,27 +1061,22 @@ async function loadModels(
     $(`${prefix}BrandSelect`)
       ?.value;
 
-
   clearSelect(
     `${prefix}ModelSelect`,
     "Modell auswählen"
   );
-
 
   clearSelect(
     `${prefix}GenerationSelect`,
     "Typ / Generation auswählen"
   );
 
-
   clearSelect(
     `${prefix}EngineSelect`,
     "Motorisierung auswählen"
   );
 
-
   if (!brand) return;
-
 
   try {
 
@@ -1842,30 +1086,16 @@ async function loadModels(
         brand
       });
 
-
-    let models =
-      data;
-
-
-    if (
-      !Array.isArray(models) &&
-      Array.isArray(
-        data?.models
-      )
-    ) {
-
-      models =
-        data.models;
-
-    }
-
+    const models =
+      Array.isArray(data)
+        ? data
+        : data?.models || [];
 
     fillSelect(
       `${prefix}ModelSelect`,
       models,
       "Modell auswählen"
     );
-
 
   } catch (error) {
 
@@ -1874,13 +1104,16 @@ async function loadModels(
       error
     );
 
-  }
+    clearSelect(
+      `${prefix}ModelSelect`,
+      "Modelle nicht verfügbar"
+    );
 
+  }
 }
 
-
 /* =========================================================
-   GENERATIONEN LADEN
+   GENERATIONEN
 ========================================================= */
 
 async function loadGenerations(
@@ -1891,33 +1124,31 @@ async function loadGenerations(
     $(`${prefix}BrandSelect`)
       ?.value;
 
-
   const model =
     $(`${prefix}ModelSelect`)
       ?.value;
-
 
   clearSelect(
     `${prefix}GenerationSelect`,
     "Typ / Generation auswählen"
   );
 
-
   clearSelect(
     `${prefix}EngineSelect`,
     "Motorisierung auswählen"
   );
 
+  /*
+   * Die kostenlose NHTSA-Quelle stellt keine
+   * zuverlässige deutsche Generationenliste bereit.
+   *
+   * Deshalb wird hier nicht unnötig API4Cars
+   * belastet.
+   */
 
-  if (
-    !brand ||
-    !model
-  ) {
-
+  if (!brand || !model) {
     return;
-
   }
-
 
   try {
 
@@ -1928,45 +1159,29 @@ async function loadGenerations(
         model
       });
 
-
-    let generations =
-      data;
-
-
-    if (
-      !Array.isArray(generations) &&
-      Array.isArray(
-        data?.generations
-      )
-    ) {
-
-      generations =
-        data.generations;
-
-    }
-
+    const generations =
+      Array.isArray(data)
+        ? data
+        : data?.generations || [];
 
     fillSelect(
       `${prefix}GenerationSelect`,
       generations,
-      "Typ / Generation auswählen"
+      "Generation auswählen"
     );
-
 
   } catch (error) {
 
-    console.error(
-      "Generationen konnten nicht geladen werden:",
+    console.warn(
+      "Generationen nicht verfügbar:",
       error
     );
 
   }
-
 }
 
-
 /* =========================================================
-   MOTOREN LADEN
+   MOTOREN
 ========================================================= */
 
 async function loadEngines(
@@ -1977,33 +1192,26 @@ async function loadEngines(
     $(`${prefix}BrandSelect`)
       ?.value;
 
-
   const model =
     $(`${prefix}ModelSelect`)
       ?.value;
 
-
   const generation =
     $(`${prefix}GenerationSelect`)
       ?.value;
-
 
   clearSelect(
     `${prefix}EngineSelect`,
     "Motorisierung auswählen"
   );
 
-
   if (
     !brand ||
     !model ||
     !generation
   ) {
-
     return;
-
   }
-
 
   try {
 
@@ -2015,23 +1223,10 @@ async function loadEngines(
         generation
       });
 
-
-    let engines =
-      data;
-
-
-    if (
-      !Array.isArray(engines) &&
-      Array.isArray(
-        data?.engines
-      )
-    ) {
-
-      engines =
-        data.engines;
-
-    }
-
+    const engines =
+      Array.isArray(data)
+        ? data
+        : data?.engines || [];
 
     fillSelect(
       `${prefix}EngineSelect`,
@@ -2039,21 +1234,18 @@ async function loadEngines(
       "Motorisierung auswählen"
     );
 
-
   } catch (error) {
 
-    console.error(
-      "Motorisierungen konnten nicht geladen werden:",
+    console.warn(
+      "Motorisierungen nicht verfügbar:",
       error
     );
 
   }
-
 }
 
-
 /* =========================================================
-   FAHRZEUG ÜBER MODELL AUSWÄHLEN
+   FAHRZEUG ÜBER MARKE / MODELL
 ========================================================= */
 
 async function selectVehicleByModel(
@@ -2064,34 +1256,25 @@ async function selectVehicleByModel(
     $(`${prefix}BrandSelect`)
       ?.value;
 
-
   const model =
     $(`${prefix}ModelSelect`)
       ?.value;
-
 
   const generation =
     $(`${prefix}GenerationSelect`)
       ?.value;
 
-
   const engine =
     $(`${prefix}EngineSelect`)
       ?.value;
 
-
   const statusId =
     `${prefix}ApiStatus`;
-
 
   const vehicleDataId =
     `${prefix}VehicleData`;
 
-
-  if (
-    !brand ||
-    !model
-  ) {
+  if (!brand || !model) {
 
     showStatus(
       statusId,
@@ -2100,16 +1283,13 @@ async function selectVehicleByModel(
     );
 
     return;
-
   }
-
 
   showStatus(
     statusId,
     "Fahrzeug wird geladen …",
     "loading"
   );
-
 
   try {
 
@@ -2122,33 +1302,19 @@ async function selectVehicleByModel(
         engine
       });
 
-
     const vehicle =
-      normalizeVehicle(
-        data
-      );
+      normalizeVehicle(data);
 
-
-    if (
-      prefix === "current"
-    ) {
-
-      currentVehicle =
-        vehicle;
-
+    if (prefix === "current") {
+      currentVehicle = vehicle;
     } else {
-
-      newVehicle =
-        vehicle;
-
+      newVehicle = vehicle;
     }
-
 
     renderVehicle(
       vehicleDataId,
       vehicle
     );
-
 
     showStatus(
       statusId,
@@ -2156,22 +1322,44 @@ async function selectVehicleByModel(
       "success"
     );
 
-
   } catch (error) {
+
+    /*
+     * Wichtig:
+     * Selbst wenn die technische Variantensuche
+     * nicht verfügbar ist, zeigen wir Marke und
+     * Modell trotzdem an.
+     */
+
+    const vehicle = {
+      brand,
+      model,
+      generation,
+      engine
+    };
+
+    if (prefix === "current") {
+      currentVehicle = vehicle;
+    } else {
+      newVehicle = vehicle;
+    }
+
+    renderVehicle(
+      vehicleDataId,
+      vehicle
+    );
 
     showStatus(
       statusId,
-      error.message,
-      "error"
+      "Marke und Modell gefunden. Technische Zusatzdaten sind aktuell nicht verfügbar.",
+      "success"
     );
 
   }
-
 }
 
-
 /* =========================================================
-   FAHRZEUGWERT SCHÄTZEN
+   FAHRZEUGWERT
 ========================================================= */
 
 function estimateVehicleValue(
@@ -2184,22 +1372,15 @@ function estimateVehicleValue(
     !purchasePrice ||
     purchasePrice <= 0
   ) {
-
     return null;
-
   }
-
 
   const kmDifference =
     Math.max(
       0,
-      (currentKm ||
-        purchaseKm ||
-        0) -
-      (purchaseKm ||
-        0)
+      (currentKm || purchaseKm || 0) -
+      (purchaseKm || 0)
     );
-
 
   const depreciation =
     Math.min(
@@ -2209,18 +1390,15 @@ function estimateVehicleValue(
         0.55
     );
 
-
   return Math.max(
     500,
     purchasePrice *
       (1 - depreciation)
   );
-
 }
 
-
 /* =========================================================
-   HALTEDAUER BERECHNEN
+   HALTEDAUER
 ========================================================= */
 
 function calculateRecommendedHolding(
@@ -2238,27 +1416,21 @@ function calculateRecommendedHolding(
     tax
   } = data;
 
-
   if (
     !purchasePrice ||
     !currentKm ||
     !annualKm ||
     annualKm <= 0
   ) {
-
     return null;
-
   }
-
 
   const kmDriven =
     Math.max(
       0,
       currentKm -
-      (purchaseKm ||
-        currentKm)
+      (purchaseKm || currentKm)
     );
-
 
   const fuelPerYear =
     consumption &&
@@ -2269,72 +1441,33 @@ function calculateRecommendedHolding(
           fuelPrice
       : 0;
 
-
   const fixedPerYear =
-    (insurance || 0) *
-      12 +
+    (insurance || 0) * 12 +
     (tax || 0);
-
 
   const annualRunningCost =
     fuelPerYear +
     fixedPerYear;
 
+  let recommendedYears = 5;
 
-  let recommendedYears =
-    5;
-
-
-  if (
-    currentKm >=
-    220000
-  ) {
-
-    recommendedYears =
-      2;
-
-  } else if (
-    currentKm >=
-    190000
-  ) {
-
-    recommendedYears =
-      3;
-
-  } else if (
-    currentKm >=
-    160000
-  ) {
-
-    recommendedYears =
-      4;
-
-  } else if (
-    currentKm >=
-    130000
-  ) {
-
-    recommendedYears =
-      5;
-
+  if (currentKm >= 220000) {
+    recommendedYears = 2;
+  } else if (currentKm >= 190000) {
+    recommendedYears = 3;
+  } else if (currentKm >= 160000) {
+    recommendedYears = 4;
+  } else if (currentKm >= 130000) {
+    recommendedYears = 5;
   } else {
-
-    recommendedYears =
-      6;
-
+    recommendedYears = 6;
   }
-
 
   if (
-    annualRunningCost >
-    3500
+    annualRunningCost > 3500
   ) {
-
-    recommendedYears -=
-      1;
-
+    recommendedYears -= 1;
   }
-
 
   recommendedYears =
     Math.max(
@@ -2345,42 +1478,26 @@ function calculateRecommendedHolding(
       )
     );
 
-
-  const recommendedKm =
-    currentKm +
-    annualKm *
-      recommendedYears;
-
-
-  const annualValueLoss =
-    purchasePrice *
-    0.08;
-
-
-  const estimatedTotalAnnualCost =
-    annualRunningCost +
-    annualValueLoss;
-
-
   return {
-
     recommendedYears,
 
-    recommendedKm,
+    recommendedKm:
+      currentKm +
+      annualKm *
+      recommendedYears,
 
     annualRunningCost,
 
-    estimatedTotalAnnualCost,
+    estimatedTotalAnnualCost:
+      annualRunningCost +
+      purchasePrice * 0.08,
 
     kmDriven
-
   };
-
 }
 
-
 /* =========================================================
-   AKTUELLES AUTO BERECHNEN
+   AKTUELLES AUTO
 ========================================================= */
 
 function calculateCurrent() {
@@ -2390,54 +1507,55 @@ function calculateCurrent() {
       "currentPurchasePrice"
     );
 
-
   const purchaseKm =
     numberValue(
       "currentPurchaseKm"
     );
-
 
   const currentKm =
     numberValue(
       "currentKm"
     );
 
-
   const annualKm =
     numberValue(
       "currentAnnualKm"
     );
-
 
   const consumption =
     numberValue(
       "currentConsumption"
     );
 
-
   const fuelPrice =
     numberValue(
       "currentFuelPrice"
     );
 
-
   const insurance =
     numberValue(
       "currentInsurance"
-    );
-
+    ) || 0;
 
   const tax =
     numberValue(
       "currentTax"
-    );
-
+    ) || 0;
 
   const repairCost =
     numberValue(
       "currentRepairCost"
     );
 
+  const vehicleValueInput =
+    numberValue(
+      "currentValue"
+    );
+
+  const result =
+    $("currentResult");
+
+  if (!result) return;
 
   if (
     purchasePrice === null ||
@@ -2448,33 +1566,24 @@ function calculateCurrent() {
     fuelPrice === null
   ) {
 
-    const result =
-      $("currentResult");
-
-
     result.className =
       "result red";
 
-
     result.innerHTML = `
-      <strong>Angaben fehlen</strong>
+      <strong>
+        Angaben fehlen
+      </strong>
+
       <p>
-        Bitte fülle mindestens Kaufpreis,
-        Kilometerstände, Fahrleistung,
-        Verbrauch und Kraftstoffpreis aus.
+        Bitte fülle mindestens
+        Kaufpreis, Kilometerstände,
+        Fahrleistung, Verbrauch
+        und Kraftstoffpreis aus.
       </p>
     `;
 
-
-    result.classList.remove(
-      "hidden"
-    );
-
-
     return;
-
   }
-
 
   const holding =
     calculateRecommendedHolding({
@@ -2488,39 +1597,34 @@ function calculateCurrent() {
       tax
     });
 
-
-  /*
-   * Der aktuelle Fahrzeugwert wird IMMER
-   * automatisch berechnet.
-   */
-
   const estimatedValue =
+    vehicleValueInput ??
     estimateVehicleValue(
       purchasePrice,
       purchaseKm,
       currentKm
     );
 
-
-  let repairHtml =
-    "";
-
+  let repairHtml = "";
 
   if (
     repairCost !== null &&
-    repairCost > 0
+    repairCost > 0 &&
+    estimatedValue !== null
   ) {
 
     if (
-      estimatedValue !== null &&
       repairCost <=
-        estimatedValue *
-        0.35
+      estimatedValue * 0.35
     ) {
 
       repairHtml = `
         <div class="result green">
-          <strong>Reparatur eher sinnvoll</strong>
+
+          <strong>
+            Reparatur eher sinnvoll
+          </strong>
+
           <p>
             ${formatEuro(
               repairCost
@@ -2528,29 +1632,34 @@ function calculateCurrent() {
             entsprechen nur etwa
             ${formatNumber(
               repairCost /
-                estimatedValue *
-                100,
+              estimatedValue *
+              100,
               1
-            )}% des geschätzten Fahrzeugwerts.
+            )} %
+            des geschätzten Fahrzeugwerts.
           </p>
+
         </div>
       `;
 
     } else if (
-      estimatedValue !== null &&
       repairCost <=
-        estimatedValue *
-        0.60
+      estimatedValue * 0.60
     ) {
 
       repairHtml = `
         <div class="result amber">
-          <strong>Reparatur genau abwägen</strong>
+
+          <strong>
+            Reparatur genau abwägen
+          </strong>
+
           <p>
-            Die Reparatur ist finanziell noch
-            vertretbar, liegt aber bereits bei
-            einem größeren Anteil des Fahrzeugwerts.
+            Die Reparatur liegt bereits
+            bei einem größeren Anteil
+            des Fahrzeugwerts.
           </p>
+
         </div>
       `;
 
@@ -2558,39 +1667,38 @@ function calculateCurrent() {
 
       repairHtml = `
         <div class="result red">
-          <strong>Verkauf eher prüfen</strong>
+
+          <strong>
+            Verkauf eher prüfen
+          </strong>
+
           <p>
-            Die Reparaturkosten sind im Verhältnis
-            zum geschätzten Fahrzeugwert sehr hoch.
+            Die Reparaturkosten sind
+            im Verhältnis zum geschätzten
+            Fahrzeugwert sehr hoch.
           </p>
+
         </div>
       `;
-
     }
-
   }
-
-
-  const result =
-    $("currentResult");
-
 
   result.className =
     "result";
 
-
   result.innerHTML = `
-
     <strong>
-      Weiterfahren ist aktuell grundsätzlich sinnvoll.
+      Weiterfahren ist aktuell
+      grundsätzlich sinnvoll.
     </strong>
 
     <p>
-      Eine Reparatur ist nicht automatisch ein Grund,
-      das Fahrzeug zu verkaufen. Entscheidend sind die
+      Eine Reparatur ist nicht
+      automatisch ein Grund,
+      das Fahrzeug zu verkaufen.
+      Entscheidend sind die
       zukünftigen Gesamtkosten.
     </p>
-
 
     ${
       holding
@@ -2599,8 +1707,11 @@ function calculateCurrent() {
 
             <div>
               <b>
-                ca. ${holding.recommendedYears} Jahre
+                ca.
+                ${holding.recommendedYears}
+                Jahre
               </b>
+
               <small>
                 empfohlene weitere Haltedauer
               </small>
@@ -2612,8 +1723,10 @@ function calculateCurrent() {
                   holding.recommendedKm
                 )}
               </b>
+
               <small>
-                ungefährer Prüfpunkt für einen Verkauf
+                ungefährer Prüfpunkt
+                für einen Verkauf
               </small>
             </div>
 
@@ -2623,6 +1736,7 @@ function calculateCurrent() {
                   holding.annualRunningCost
                 )}
               </b>
+
               <small>
                 jährliche laufende Kosten
               </small>
@@ -2633,11 +1747,11 @@ function calculateCurrent() {
         : ""
     }
 
-
     ${
-      estimatedValue !== null
+      estimatedValue
         ? `
           <div class="result">
+
             <strong>
               Geschätzter Fahrzeugwert:
               ${formatEuro(
@@ -2646,31 +1760,25 @@ function calculateCurrent() {
             </strong>
 
             <p>
-              Dieser Wert wird automatisch aus
-              Kaufpreis und Kilometerentwicklung
-              berechnet und ist nur eine Rechengröße,
-              kein konkreter Marktpreis.
+              Dies ist nur eine Rechengröße
+              und kein konkreter Marktpreis.
             </p>
+
           </div>
         `
         : ""
     }
 
-
     ${repairHtml}
-
   `;
-
 
   result.classList.remove(
     "hidden"
   );
-
 }
 
-
 /* =========================================================
-   VERGLEICH NEUES AUTO
+   VERGLEICH
 ========================================================= */
 
 function calculateComparison() {
@@ -2680,66 +1788,60 @@ function calculateComparison() {
       "currentAnnualKm"
     );
 
-
   const currentConsumption =
     numberValue(
       "currentConsumption"
     );
-
 
   const currentFuelPrice =
     numberValue(
       "currentFuelPrice"
     );
 
-
   const currentInsurance =
     numberValue(
       "currentInsurance"
     ) || 0;
-
 
   const currentTax =
     numberValue(
       "currentTax"
     ) || 0;
 
-
   const currentPurchasePrice =
     numberValue(
       "currentPurchasePrice"
     );
-
 
   const currentKm =
     numberValue(
       "currentKm"
     );
 
-
   const newPurchasePrice =
     numberValue(
       "newPurchasePrice"
     );
-
 
   const newConsumption =
     numberValue(
       "newConsumption"
     );
 
-
   const newInsurance =
     numberValue(
       "newInsurance"
     ) || 0;
-
 
   const newTax =
     numberValue(
       "newTax"
     ) || 0;
 
+  const result =
+    $("comparisonResult");
+
+  if (!result) return;
 
   if (
     currentAnnualKm === null ||
@@ -2749,33 +1851,24 @@ function calculateComparison() {
     newConsumption === null
   ) {
 
-    const result =
-      $("comparisonResult");
-
-
     result.className =
       "result red";
 
-
     result.innerHTML = `
-      <strong>Angaben fehlen</strong>
+      <strong>
+        Angaben fehlen
+      </strong>
+
       <p>
-        Für den Vergleich werden die Daten des
-        aktuellen Autos und mindestens Kaufpreis
-        und Verbrauch des neuen Autos benötigt.
+        Für den Vergleich werden
+        die Daten des aktuellen Autos
+        sowie Kaufpreis und Verbrauch
+        des neuen Autos benötigt.
       </p>
     `;
 
-
-    result.classList.remove(
-      "hidden"
-    );
-
-
     return;
-
   }
-
 
   const currentFuelCost =
     currentAnnualKm /
@@ -2783,37 +1876,28 @@ function calculateComparison() {
     currentConsumption *
     currentFuelPrice;
 
-
   const newFuelCost =
     currentAnnualKm /
     100 *
     newConsumption *
     currentFuelPrice;
 
-
   const currentAnnualCost =
     currentFuelCost +
-    currentInsurance *
-      12 +
+    currentInsurance * 12 +
     currentTax;
-
 
   const newAnnualCost =
     newFuelCost +
-    newInsurance *
-      12 +
+    newInsurance * 12 +
     newTax;
-
 
   const annualSaving =
     currentAnnualCost -
     newAnnualCost;
 
-
   const currentPrice =
-    currentPurchasePrice ||
-    0;
-
+    currentPurchasePrice || 0;
 
   const additionalInvestment =
     Math.max(
@@ -2822,29 +1906,17 @@ function calculateComparison() {
       currentPrice
     );
 
-
   const paybackYears =
     annualSaving > 0
       ? additionalInvestment /
         annualSaving
       : null;
 
-
   const fuelSaving =
     currentFuelCost -
     newFuelCost;
 
-
-  const result =
-    $("comparisonResult");
-
-
-  result.className =
-    "result";
-
-
   let recommendation;
-
 
   if (
     paybackYears !== null &&
@@ -2853,9 +1925,15 @@ function calculateComparison() {
 
     recommendation = `
       <div class="result green">
-        <strong>Der Wechsel kann sich finanziell lohnen.</strong>
+
+        <strong>
+          Der Wechsel kann sich
+          finanziell lohnen.
+        </strong>
+
         <p>
-          Die zusätzlichen Anschaffungskosten würden sich
+          Die zusätzlichen
+          Anschaffungskosten würden sich
           rechnerisch nach ungefähr
           ${formatNumber(
             paybackYears,
@@ -2863,6 +1941,7 @@ function calculateComparison() {
           )}
           Jahren amortisieren.
         </p>
+
       </div>
     `;
 
@@ -2873,9 +1952,14 @@ function calculateComparison() {
 
     recommendation = `
       <div class="result amber">
-        <strong>Der Mehrwert ist eher begrenzt.</strong>
+
+        <strong>
+          Der Mehrwert ist eher begrenzt.
+        </strong>
+
         <p>
-          Die zusätzlichen Anschaffungskosten amortisieren
+          Die zusätzlichen
+          Anschaffungskosten amortisieren
           sich erst nach ungefähr
           ${formatNumber(
             paybackYears,
@@ -2883,6 +1967,7 @@ function calculateComparison() {
           )}
           Jahren.
         </p>
+
       </div>
     `;
 
@@ -2890,22 +1975,30 @@ function calculateComparison() {
 
     recommendation = `
       <div class="result red">
-        <strong>Ein Wechsel ist finanziell aktuell eher nicht attraktiv.</strong>
+
+        <strong>
+          Ein Wechsel ist finanziell
+          aktuell eher nicht attraktiv.
+        </strong>
+
         <p>
-          Der finanzielle Vorteil des neuen Autos reicht
-          voraussichtlich nicht aus, um die Mehrkosten
-          innerhalb eines sinnvollen Zeitraums auszugleichen.
+          Der finanzielle Vorteil reicht
+          voraussichtlich nicht aus,
+          um die Mehrkosten innerhalb
+          eines sinnvollen Zeitraums
+          auszugleichen.
         </p>
+
       </div>
     `;
-
   }
 
+  result.className =
+    "result";
 
   result.innerHTML = `
 
     ${recommendation}
-
 
     <div class="metrics">
 
@@ -2920,7 +2013,6 @@ function calculateComparison() {
         </small>
       </div>
 
-
       <div>
         <b>
           ${formatEuro(
@@ -2931,7 +2023,6 @@ function calculateComparison() {
           neue jährliche Kosten
         </small>
       </div>
-
 
       <div>
         <b>
@@ -2950,35 +2041,6 @@ function calculateComparison() {
         </small>
       </div>
 
-    </div>
-
-
-    <div class="metrics">
-
-      <div>
-        <b>
-          ${formatEuro(
-            fuelSaving
-          )}
-        </b>
-        <small>
-          Kraftstoffersparnis pro Jahr
-        </small>
-      </div>
-
-
-      <div>
-        <b>
-          ${formatEuro(
-            additionalInvestment
-          )}
-        </b>
-        <small>
-          zusätzliche Investition
-        </small>
-      </div>
-
-
       <div>
         <b>
           ${
@@ -2986,8 +2048,7 @@ function calculateComparison() {
               ? formatNumber(
                   paybackYears,
                   1
-                ) +
-                " Jahre"
+                ) + " Jahre"
               : "nicht erreichbar"
           }
         </b>
@@ -2998,31 +2059,12 @@ function calculateComparison() {
 
     </div>
 
-
-    ${
-      currentKm !== null
-        ? `
-          <p style="margin-top:18px">
-            Aktueller Kilometerstand:
-            <strong>
-              ${formatKm(
-                currentKm
-              )}
-            </strong>
-          </p>
-        `
-        : ""
-    }
-
   `;
-
 
   result.classList.remove(
     "hidden"
   );
-
 }
-
 
 /* =========================================================
    GESPEICHERTE AUTOS
@@ -3030,7 +2072,6 @@ function calculateComparison() {
 
 const STORAGE_KEY =
   "autoCostCheck_savedCars";
-
 
 function getSavedCars() {
 
@@ -3041,7 +2082,6 @@ function getSavedCars() {
         STORAGE_KEY
       );
 
-
     return data
       ? JSON.parse(data)
       : [];
@@ -3051,9 +2091,7 @@ function getSavedCars() {
     return [];
 
   }
-
 }
-
 
 function saveCars(cars) {
 
@@ -3061,9 +2099,7 @@ function saveCars(cars) {
     STORAGE_KEY,
     JSON.stringify(cars)
   );
-
 }
-
 
 function collectCurrentCar() {
 
@@ -3077,75 +2113,67 @@ function collectCurrentCar() {
     vehicle:
       currentVehicle,
 
-
     purchasePrice:
       numberValue(
         "currentPurchasePrice"
       ),
-
 
     purchaseKm:
       numberValue(
         "currentPurchaseKm"
       ),
 
-
     purchaseDate:
       $("currentPurchaseDate")
         ?.value || "",
-
 
     currentKm:
       numberValue(
         "currentKm"
       ),
 
-
     annualKm:
       numberValue(
         "currentAnnualKm"
       ),
-
 
     consumption:
       numberValue(
         "currentConsumption"
       ),
 
-
     fuelPrice:
       numberValue(
         "currentFuelPrice"
       ),
-
 
     insurance:
       numberValue(
         "currentInsurance"
       ),
 
-
     tax:
       numberValue(
         "currentTax"
       ),
 
-
     repairCost:
       numberValue(
         "currentRepairCost"
+      ),
+
+    vehicleValue:
+      numberValue(
+        "currentValue"
       )
 
   };
-
 }
-
 
 function saveCurrentCar() {
 
   const car =
     collectCurrentCar();
-
 
   if (
     !car.purchasePrice &&
@@ -3158,387 +2186,298 @@ function saveCurrentCar() {
     );
 
     return;
-
   }
-
 
   const cars =
     getSavedCars();
 
+  cars.push(car);
 
-  cars.push(
-    car
-  );
-
-
-  saveCars(
-    cars
-  );
-
+  saveCars(cars);
 
   renderSavedCars();
-
 
   alert(
     "Fahrzeug wurde gespeichert."
   );
-
 }
 
-
-function deleteSavedCar(
-  id
-) {
+function deleteSavedCar(id) {
 
   const cars =
     getSavedCars()
       .filter(
         car =>
-          String(
-            car.id
-          ) !==
-          String(
-            id
-          )
+          String(car.id) !==
+          String(id)
       );
 
-
-  saveCars(
-    cars
-  );
-
+  saveCars(cars);
 
   renderSavedCars();
-
 }
 
-
-function loadSavedCar(
-  id
-) {
+function loadSavedCar(id) {
 
   const car =
     getSavedCars()
       .find(
         item =>
-          String(
-            item.id
-          ) ===
-          String(
-            id
-          )
+          String(item.id) ===
+          String(id)
       );
-
 
   if (!car) return;
 
-
-  const vehicle =
-    car.vehicle;
-
-
   currentVehicle =
-    vehicle ||
-    null;
-
+    car.vehicle || null;
 
   setValue(
     "currentPurchasePrice",
     car.purchasePrice
   );
 
-
   setValue(
     "currentPurchaseKm",
     car.purchaseKm
   );
-
 
   setValue(
     "currentPurchaseDate",
     car.purchaseDate
   );
 
-
   setValue(
     "currentKm",
     car.currentKm
   );
-
 
   setValue(
     "currentAnnualKm",
     car.annualKm
   );
 
-
   setValue(
     "currentConsumption",
     car.consumption
   );
-
 
   setValue(
     "currentFuelPrice",
     car.fuelPrice
   );
 
-
   setValue(
     "currentInsurance",
     car.insurance
   );
-
 
   setValue(
     "currentTax",
     car.tax
   );
 
-
   setValue(
     "currentRepairCost",
     car.repairCost
   );
 
+  setValue(
+    "currentValue",
+    car.vehicleValue
+  );
 
-  if (vehicle) {
+  if (car.vehicle) {
 
     renderVehicle(
       "currentVehicleData",
-      vehicle
+      car.vehicle
     );
 
   }
 
+  document
+    .querySelectorAll(
+      ".tabs .tab"
+    )
+    .forEach(tab => {
 
-  showSection(
-    "currentCarSection"
-  );
+      tab.classList.toggle(
+        "active",
+        tab.dataset.target ===
+        "currentCarSection"
+      );
 
+    });
+
+  [
+    "currentCarSection",
+    "newCarSection",
+    "savedSection"
+  ].forEach(id => {
+
+    const section = $(id);
+
+    if (!section) return;
+
+    section.classList.toggle(
+      "hidden",
+      id !==
+      "currentCarSection"
+    );
+
+  });
 }
-
-
-/* =========================================================
-   GESPEICHERTE AUTOS RENDERN
-========================================================= */
 
 function renderSavedCars() {
 
   const container =
     $("savedCars");
 
-
   if (!container) return;
-
 
   const cars =
     getSavedCars();
-
 
   if (!cars.length) {
 
     container.innerHTML = `
       <div class="result">
-        <strong>Noch keine Fahrzeuge gespeichert</strong>
+
+        <strong>
+          Noch keine Fahrzeuge gespeichert
+        </strong>
+
         <p>
-          Speichere dein aktuelles Fahrzeug,
-          um es später wieder aufzurufen.
+          Speichere dein aktuelles
+          Fahrzeug, um es später
+          wieder aufzurufen.
         </p>
+
       </div>
     `;
 
     return;
-
   }
 
-
   container.innerHTML =
-    cars
-      .map(
-        car => {
+    cars.map(car => {
 
-          const vehicle =
-            car.vehicle;
+      const vehicle =
+        car.vehicle;
 
+      const title =
+        vehicle
+          ? [
+              vehicle.brand,
+              vehicle.model
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : "Fahrzeug";
 
-          const title =
-            vehicle
-              ? [
-                  vehicle.brand,
-                  vehicle.model
-                ]
-                  .filter(Boolean)
-                  .join(" ")
-              : "Fahrzeug";
+      const subtitle =
+        vehicle
+          ? [
+              vehicle.generation,
+              vehicle.engine
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : "Keine Fahrzeugdaten";
 
+      return `
+        <div class="saved">
 
-          const description =
-            vehicle
-              ? [
-                  vehicle.generation,
-                  vehicle.engine
-                ]
-                  .filter(Boolean)
-                  .join(" - ")
-              : "Keine Fahrzeugdaten";
+          <div>
 
+            <strong>
+              ${escapeHtml(
+                title
+              )}
+            </strong>
 
-          const kmText =
-            car.currentKm
-              ? formatKm(
-                  car.currentKm
-                )
-              : "Kilometerstand-nicht-angegeben";
+            <small class="saved-subtitle">
+              ${escapeHtml(
+                subtitle
+              )}
+            </small>
 
+            <small>
+              ${
+                car.currentKm
+                  ? formatKm(
+                      car.currentKm
+                    )
+                  : "Kilometerstand nicht angegeben"
+              }
+            </small>
 
-          return `
+          </div>
 
-            <div
-              class="saved"
-              style="
-                display:flex;
-                align-items:center;
-                justify-content:space-between;
-                gap:24px;
-              "
+          <div class="actions">
+
+            <button
+              type="button"
+              class="btn white"
+              data-load-car="${car.id}"
             >
+              Laden
+            </button>
 
-              <div
-                class="saved-info"
-                style="
-                  flex:1 1 auto;
-                  min-width:0;
-                  overflow-wrap:anywhere;
-                  word-break:break-word;
-                "
-              >
+            <button
+              type="button"
+              class="btn white danger"
+              data-delete-car="${car.id}"
+            >
+              Löschen
+            </button>
 
-                <strong>
-                  ${escapeHtml(
-                    title ||
-                    "Fahrzeug"
-                  )}
-                </strong>
+          </div>
 
-                <small
-  style="
-    display:block;
-    white-space:normal;
-    overflow-wrap:normal;
-    word-break:normal;
-  "
->
-                  ${escapeHtml(
-                    description
-                  )}
-                </small>
+        </div>
+      `;
 
-                <small
-                  style="
-                    display:block;
-                    white-space:normal;
-                    overflow-wrap:anywhere;
-                    word-break:break-word;
-                  "
-                >
-                  ${escapeHtml(
-                    kmText
-                  )}
-                </small>
-
-              </div>
-
-
-              <div
-                class="actions saved-actions"
-                style="
-                  display:flex;
-                  flex-direction:column;
-                  align-items:stretch;
-                  justify-content:center;
-                  gap:12px;
-                  flex:0 0 auto;
-                  width:150px;
-                  margin:0;
-                "
-              >
-
-                <button
-                  type="button"
-                  class="btn white"
-                  data-load-car="${car.id}"
-                  style="width:100%;"
-                >
-                  Laden
-                </button>
-
-
-                <button
-                  type="button"
-                  class="btn white danger"
-                  data-delete-car="${car.id}"
-                  style="width:100%;"
-                >
-                  Löschen
-                </button>
-
-              </div>
-
-            </div>
-
-          `;
-
-        }
-      )
-      .join("");
-
+    }).join("");
 
   container
     .querySelectorAll(
       "[data-load-car]"
     )
-    .forEach(
-      button => {
+    .forEach(button => {
 
-        button.addEventListener(
-          "click",
-          () => {
+      button.addEventListener(
+        "click",
+        () => {
 
-            loadSavedCar(
-              button.dataset.loadCar
-            );
+          loadSavedCar(
+            button.dataset.loadCar
+          );
 
-          }
-        );
+        }
+      );
 
-      }
-    );
-
+    });
 
   container
     .querySelectorAll(
       "[data-delete-car]"
     )
-    .forEach(
-      button => {
+    .forEach(button => {
 
-        button.addEventListener(
-          "click",
-          () => {
+      button.addEventListener(
+        "click",
+        () => {
 
-            deleteSavedCar(
-              button.dataset.deleteCar
-            );
+          deleteSavedCar(
+            button.dataset.deleteCar
+          );
 
-          }
-        );
+        }
+      );
 
-      }
-    );
-
+    });
 }
-
 
 /* =========================================================
    EINGABEN LÖSCHEN
@@ -3546,340 +2485,52 @@ function renderSavedCars() {
 
 function clearInputs() {
 
-  const inputs =
-    document.querySelectorAll(
+  document
+    .querySelectorAll(
       "input"
-    );
-
-
-  inputs.forEach(
-    input => {
-
+    )
+    .forEach(input => {
       input.value = "";
+    });
 
-    }
-  );
-
-
-  currentVehicle =
-    null;
-
-
-  newVehicle =
-    null;
-
+  currentVehicle = null;
+  newVehicle = null;
 
   document
     .querySelectorAll(
       ".vehicle-data"
     )
-    .forEach(
-      element => {
+    .forEach(element => {
 
-        element.innerHTML =
-          "";
+      element.innerHTML = "";
 
-        element.classList.add(
-          "hidden"
-        );
+      element.classList.add(
+        "hidden"
+      );
 
-      }
-    );
-
+    });
 
   document
     .querySelectorAll(
       ".api-status"
     )
-    .forEach(
-      element => {
+    .forEach(element => {
 
-        element.textContent =
-          "";
+      element.textContent = "";
 
-        element.classList.add(
-          "hidden"
-        );
+      element.classList.add(
+        "hidden"
+      );
 
-      }
-    );
-
-
-  const currentResult =
-    $("currentResult");
-
-
-  if (currentResult) {
-
-    currentResult.innerHTML =
-      "";
-
-    currentResult.className =
-      "result hidden";
-
-  }
-
-
-  const comparisonResult =
-    $("comparisonResult");
-
-
-  if (comparisonResult) {
-
-    comparisonResult.innerHTML =
-      "";
-
-    comparisonResult.className =
-      "result hidden";
-
-  }
-
-
-  [
-    "currentModelSelect",
-    "currentGenerationSelect",
-    "currentEngineSelect",
-    "newModelSelect",
-    "newGenerationSelect",
-    "newEngineSelect"
-  ]
-    .forEach(
-      id => {
-
-        const select =
-          $(id);
-
-
-        if (!select) return;
-
-
-        select.selectedIndex =
-          0;
-
-
-        select.disabled =
-          true;
-
-      }
-    );
+    });
 
 }
-
-
-/* =========================================================
-   DIREKTER FAHRZEUGVERGLEICH
-========================================================= */
-
-function renderVehicleComparison() {
-
-  const container =
-    $("vehicleComparison");
-
-
-  const section =
-    $("comparisonSection");
-
-
-  if (
-    !container ||
-    !section
-  ) {
-
-    return;
-
-  }
-
-
-  if (
-    !currentVehicle ||
-    !newVehicle
-  ) {
-
-    section.classList.add(
-      "hidden"
-    );
-
-    return;
-
-  }
-
-
-  const rows = [
-
-    [
-      "Marke",
-      currentVehicle.brand,
-      newVehicle.brand
-    ],
-
-
-    [
-      "Modell",
-      currentVehicle.model,
-      newVehicle.model
-    ],
-
-
-    [
-      "Generation",
-      currentVehicle.generation,
-      newVehicle.generation
-    ],
-
-
-    [
-      "Baujahr",
-      currentVehicle.year,
-      newVehicle.year
-    ],
-
-
-    [
-      "Leistung",
-      currentVehicle.power
-        ? `${formatNumber(
-            currentVehicle.power
-          )} PS`
-        : "–",
-      newVehicle.power
-        ? `${formatNumber(
-            newVehicle.power
-          )} PS`
-        : "–"
-    ],
-
-
-    [
-      "Hubraum",
-      currentVehicle.displacement
-        ? `${formatNumber(
-            currentVehicle.displacement,
-            1
-          )} L`
-        : "–",
-      newVehicle.displacement
-        ? `${formatNumber(
-            newVehicle.displacement,
-            1
-          )} L`
-        : "–"
-    ],
-
-
-    [
-      "Kraftstoff",
-      currentVehicle.fuel ||
-        "–",
-      newVehicle.fuel ||
-        "–"
-    ],
-
-
-    [
-      "Getriebe",
-      currentVehicle.transmission ||
-        "–",
-      newVehicle.transmission ||
-        "–"
-    ],
-
-
-    [
-      "HSN",
-      currentVehicle.hsn ||
-        "–",
-      newVehicle.hsn ||
-        "–"
-    ],
-
-
-    [
-      "TSN",
-      currentVehicle.tsn ||
-        "–",
-      newVehicle.tsn ||
-        "–"
-    ]
-
-  ];
-
-
-  container.innerHTML = `
-
-    <table>
-
-      <thead>
-
-        <tr>
-          <th>Merkmal</th>
-          <th>Aktuelles Auto</th>
-          <th>Neues Auto</th>
-        </tr>
-
-      </thead>
-
-
-      <tbody>
-
-        ${
-          rows
-            .map(
-              row => `
-
-                <tr>
-
-                  <td>
-                    <strong>
-                      ${escapeHtml(
-                        row[0]
-                      )}
-                    </strong>
-                  </td>
-
-
-                  <td>
-                    ${escapeHtml(
-                      row[1] ??
-                      "–"
-                    )}
-                  </td>
-
-
-                  <td>
-                    ${escapeHtml(
-                      row[2] ??
-                      "–"
-                    )}
-                  </td>
-
-                </tr>
-
-              `
-            )
-            .join("")
-        }
-
-      </tbody>
-
-    </table>
-
-  `;
-
-
-  section.classList.remove(
-    "hidden"
-  );
-
-}
-
 
 /* =========================================================
    EVENTS
 ========================================================= */
 
 function initEvents() {
-
-  /* HSN / TSN */
 
   $("currentHsnSearchBtn")
     ?.addEventListener(
@@ -3890,7 +2541,6 @@ function initEvents() {
         )
     );
 
-
   $("newHsnSearchBtn")
     ?.addEventListener(
       "click",
@@ -3899,9 +2549,6 @@ function initEvents() {
           "new"
         )
     );
-
-
-  /* Marken */
 
   $("currentBrandSelect")
     ?.addEventListener(
@@ -3912,7 +2559,6 @@ function initEvents() {
         )
     );
 
-
   $("newBrandSelect")
     ?.addEventListener(
       "change",
@@ -3921,9 +2567,6 @@ function initEvents() {
           "new"
         )
     );
-
-
-  /* Modelle */
 
   $("currentModelSelect")
     ?.addEventListener(
@@ -3934,7 +2577,6 @@ function initEvents() {
         )
     );
 
-
   $("newModelSelect")
     ?.addEventListener(
       "change",
@@ -3943,9 +2585,6 @@ function initEvents() {
           "new"
         )
     );
-
-
-  /* Generation */
 
   $("currentGenerationSelect")
     ?.addEventListener(
@@ -3956,7 +2595,6 @@ function initEvents() {
         )
     );
 
-
   $("newGenerationSelect")
     ?.addEventListener(
       "change",
@@ -3965,9 +2603,6 @@ function initEvents() {
           "new"
         )
     );
-
-
-  /* Modell-Suche */
 
   $("currentModelSearchBtn")
     ?.addEventListener(
@@ -3978,7 +2613,6 @@ function initEvents() {
         )
     );
 
-
   $("newModelSearchBtn")
     ?.addEventListener(
       "click",
@@ -3988,15 +2622,11 @@ function initEvents() {
         )
     );
 
-
-  /* Berechnen */
-
   $("calculateCurrentBtn")
     ?.addEventListener(
       "click",
       calculateCurrent
     );
-
 
   $("calculateComparisonBtn")
     ?.addEventListener(
@@ -4005,13 +2635,15 @@ function initEvents() {
 
         calculateComparison();
 
-        renderVehicleComparison();
+        if (
+          typeof renderVehicleComparison ===
+          "function"
+        ) {
+          renderVehicleComparison();
+        }
 
       }
     );
-
-
-  /* Speichern */
 
   $("saveCurrentBtn")
     ?.addEventListener(
@@ -4019,37 +2651,31 @@ function initEvents() {
       saveCurrentCar
     );
 
-
-  /* Löschen */
-
   $("clearInputsBtn")
     ?.addEventListener(
       "click",
       clearInputs
     );
 
-
-  /* Gespeicherte Autos */
-
   $("savedCarsBtn")
     ?.addEventListener(
       "click",
       () => {
 
-        renderSavedCars();
+        document
+          .querySelector(
+            '.tab[data-target="savedSection"]'
+          )
+          ?.click();
 
-        showSection(
-          "savedSection"
-        );
+        renderSavedCars();
 
       }
     );
-
 }
 
-
 /* =========================================================
-   INITIALISIERUNG
+   INIT
 ========================================================= */
 
 async function init() {
@@ -4064,63 +2690,11 @@ async function init() {
 
   renderSavedCars();
 
-
-  /*
- * Marken nur EINMAL laden und direkt
- * in beide Auswahlfelder übernehmen.
- *
- * Die alte Version hat beim Start
- * zwei identische API-Abfragen ausgelöst.
- */
-
-try {
-
-  const data =
-    await apiRequest({
-      action: "brands"
-    });
-
-
-  let brands =
-    data;
-
-
-  if (
-    !Array.isArray(brands) &&
-    Array.isArray(data?.brands)
-  ) {
-
-    brands =
-      data.brands;
-
-  }
-
-
-  fillSelect(
-    "currentBrandSelect",
-    brands,
-    "Marke auswählen"
-  );
-
-
-  fillSelect(
-    "newBrandSelect",
-    brands,
-    "Marke auswählen"
-  );
-
-
-} catch (error) {
-
-  console.error(
-    "Marken konnten nicht geladen werden:",
-    error
-  );
-
+  await Promise.allSettled([
+    loadBrands("current"),
+    loadBrands("new")
+  ]);
 }
-
-}
-
 
 document.addEventListener(
   "DOMContentLoaded",
