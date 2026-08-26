@@ -53,7 +53,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -65,7 +66,6 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 
 /* =========================================================
    HEADER
@@ -156,7 +156,6 @@ nav {
   place-items: center;
 }
 
-
 /* =========================================================
    MAIN
 ========================================================= */
@@ -167,7 +166,6 @@ main {
   margin: auto;
   padding: 32px 20px 70px;
 }
-
 
 /* =========================================================
    TABS
@@ -195,6 +193,12 @@ main {
   border-radius: 999px;
 
   font-weight: 800;
+
+  transition: 0.15s;
+}
+
+.tab:hover {
+  background: var(--surface2);
 }
 
 .tab.active {
@@ -202,7 +206,6 @@ main {
   border-color: var(--text);
   color: var(--surface);
 }
-
 
 /* =========================================================
    CARD
@@ -245,8 +248,8 @@ h3 {
 }
 
 /* =========================================================
-   FORMULARFELDER
-   ========================================================= */
+   FORMULARE
+========================================================= */
 
 .grid {
   display: grid;
@@ -258,56 +261,125 @@ h3 {
   min-width: 0;
 }
 
+label {
+  min-width: 0;
+}
+
 input,
 select,
 textarea {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  box-sizing: border-box;
+
+  min-height: 44px;
+
+  padding: 10px 12px;
+
+  border: 1px solid var(--line);
+
+  border-radius: 12px;
+
+  background: var(--surface2);
+  color: var(--text);
+
+  outline: none;
+
   font-size: 16px;
+
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background 0.15s;
 }
 
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--blue);
+
+  box-shadow:
+    0 0 0 3px
+    color-mix(
+      in srgb,
+      var(--blue) 16%,
+      transparent
+    );
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
 
 /* =========================================================
-   DATUMSFELDER
-   ========================================================= */
-
-/*
- * iOS/Safari behandelt input[type="date"] teilweise anders
- * als normale Text- und Number-Inputs.
- *
- * Diese Regeln sorgen dafür, dass auch Erstzulassung und
- * Kaufdatum exakt die gleiche Breite wie die übrigen Felder
- * erhalten.
- */
+   DATUM – iOS / SAFARI
+========================================================= */
 
 input[type="date"] {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  min-height: 44px;
+  height: 44px;
+
   box-sizing: border-box;
 
-  -webkit-appearance: none;
-  appearance: none;
+  padding: 10px 12px;
 
-  font-size: 16px;
+  /*
+   * Wichtig:
+   * NICHT appearance:none verwenden.
+   * Dadurch bleibt der native iOS-Kalender erhalten.
+   */
+  -webkit-appearance: auto;
+  appearance: auto;
+
+  background: var(--surface2);
+  color: var(--text);
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+
+  color-scheme: light;
 }
 
+[data-theme="dark"] input[type="date"] {
+  color-scheme: dark;
+}
 
-/* =========================================================
-   iPHONE / iOS – AUTOMATISCHEN ZOOM VERHINDERN
-   ========================================================= */
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+#currentPurchaseDate,
+#newRegistrationDate {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  box-sizing: border-box !important;
+}
 
 /*
- * Safari zoomt beim Fokussieren eines Formularfeldes
- * automatisch hinein, wenn dessen Schrift kleiner als
- * 16px ist.
- *
- * 16px verhindert diesen Zoom zuverlässig, ohne dass
- * JavaScript notwendig ist.
+ * Falls die Datumsfelder in einem label liegen,
+ * darf das label das Grid nicht verbreitern.
  */
-
+label:has(#currentPurchaseDate),
+label:has(#newRegistrationDate) {
+  min-width: 0;
+}
 
 /* =========================================================
    VEHICLE SEARCH
@@ -336,6 +408,8 @@ input[type="date"] {
   gap: 8px;
 
   margin: 18px 0;
+
+  overflow-x: auto;
 }
 
 .search-tab {
@@ -350,6 +424,14 @@ input[type="date"] {
   border-radius: 10px;
 
   font-weight: 800;
+
+  white-space: nowrap;
+
+  transition: 0.15s;
+}
+
+.search-tab:hover {
+  background: var(--surface2);
 }
 
 .search-tab.active {
@@ -363,7 +445,6 @@ input[type="date"] {
 .search-panel {
   display: block;
 }
-
 
 /* =========================================================
    API STATUS
@@ -394,6 +475,20 @@ input[type="date"] {
   color: #b91c1c;
 }
 
+[data-theme="dark"] .api-status.loading {
+  background: #172554;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .api-status.success {
+  background: #052e16;
+  color: #86efac;
+}
+
+[data-theme="dark"] .api-status.error {
+  background: #450a0a;
+  color: #fca5a5;
+}
 
 /* =========================================================
    VEHICLE DATA
@@ -411,6 +506,7 @@ input[type="date"] {
   padding: 18px;
 }
 
+.vehicle-header,
 .vehicle-title {
   display: flex;
 
@@ -423,6 +519,7 @@ input[type="date"] {
   margin-bottom: 18px;
 }
 
+.vehicle-header small,
 .vehicle-title small {
   color: var(--muted);
 
@@ -435,12 +532,14 @@ input[type="date"] {
   text-transform: uppercase;
 }
 
+.vehicle-header h3,
 .vehicle-title h3 {
   margin: 3px 0;
 
   font-size: 22px;
 }
 
+.vehicle-header p,
 .vehicle-title p {
   margin: 0;
 
@@ -453,6 +552,8 @@ input[type="date"] {
 
   display: grid;
   place-items: center;
+
+  flex: 0 0 auto;
 
   border-radius: 50%;
 
@@ -469,12 +570,15 @@ input[type="date"] {
   display: grid;
 
   grid-template-columns:
-    repeat(4, 1fr);
+    repeat(4, minmax(0, 1fr));
 
   gap: 10px;
 }
 
-.vehicle-spec {
+.vehicle-spec,
+.vehicle-specs > div {
+  min-width: 0;
+
   padding: 13px;
 
   background: var(--surface2);
@@ -482,16 +586,19 @@ input[type="date"] {
   border-radius: 13px;
 }
 
-.vehicle-spec strong {
+.vehicle-spec strong,
+.vehicle-specs strong {
   display: block;
 
   font-size: 17px;
+
+  overflow-wrap: anywhere;
 }
 
-.vehicle-spec small {
+.vehicle-spec small,
+.vehicle-specs small {
   color: var(--muted);
 }
-
 
 /* =========================================================
    PROFILE
@@ -504,7 +611,6 @@ input[type="date"] {
 
   border-top: 1px solid var(--line);
 }
-
 
 /* =========================================================
    OPTIONAL REPAIR
@@ -556,7 +662,6 @@ input[type="date"] {
   letter-spacing: 0.08em;
 }
 
-
 /* =========================================================
    DIVIDER
 ========================================================= */
@@ -568,7 +673,6 @@ input[type="date"] {
 
   margin: 25px 0;
 }
-
 
 /* =========================================================
    BUTTONS
@@ -626,7 +730,6 @@ input[type="date"] {
   background: var(--surface2);
 }
 
-
 /* =========================================================
    RESULTS
 ========================================================= */
@@ -682,7 +785,6 @@ input[type="date"] {
     );
 }
 
-
 /* =========================================================
    METRICS
 ========================================================= */
@@ -691,7 +793,7 @@ input[type="date"] {
   display: grid;
 
   grid-template-columns:
-    repeat(4, 1fr);
+    repeat(4, minmax(0, 1fr));
 
   gap: 10px;
 
@@ -699,6 +801,8 @@ input[type="date"] {
 }
 
 .metrics div {
+  min-width: 0;
+
   padding: 14px;
 
   background: var(--surface2);
@@ -710,12 +814,13 @@ input[type="date"] {
   display: block;
 
   font-size: 19px;
+
+  overflow-wrap: anywhere;
 }
 
 .metrics small {
   color: var(--muted);
 }
-
 
 /* =========================================================
    COMPARISON
@@ -772,7 +877,6 @@ input[type="date"] {
   font-weight: 700;
 }
 
-
 /* =========================================================
    SAVED
 ========================================================= */
@@ -782,7 +886,7 @@ input[type="date"] {
 
   justify-content: space-between;
 
-  align-items: center;
+  align-items: flex-start;
 
   gap: 12px;
 
@@ -795,12 +899,45 @@ input[type="date"] {
   margin-bottom: 10px;
 }
 
+.saved > div:first-child {
+  min-width: 0;
+}
+
 .saved small {
   display: block;
 
   color: var(--muted);
 }
 
+.saved-subtitle {
+  display: block;
+
+  line-height: 1.35;
+}
+
+.saved .actions {
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: stretch;
+
+  justify-content: flex-start;
+
+  gap: 12px;
+
+  margin-top: 0;
+
+  flex: 0 0 120px;
+}
+
+.saved .actions .btn {
+  width: 100%;
+
+  min-width: 120px;
+
+  box-sizing: border-box;
+}
 
 /* =========================================================
    UTILITY
@@ -824,7 +961,6 @@ footer {
   padding: 20px;
 }
 
-
 /* =========================================================
    MOBILE
 ========================================================= */
@@ -837,12 +973,12 @@ footer {
 
   .vehicle-specs {
     grid-template-columns:
-      repeat(2, 1fr);
+      repeat(2, minmax(0, 1fr));
   }
 
   .metrics {
     grid-template-columns:
-      repeat(2, 1fr);
+      repeat(2, minmax(0, 1fr));
   }
 
   .nav-button span {
@@ -856,7 +992,6 @@ footer {
 
     justify-content: center;
   }
-
 }
 
 @media (max-width: 560px) {
@@ -886,69 +1021,12 @@ footer {
     grid-template-columns: 1fr;
   }
 
-}
+  .saved {
+    flex-direction: column;
+  }
 
-/* =========================================================
-   AUTO COST CHECK – KLEINE LAYOUT-KORREKTUREN
-========================================================= */
-
-
-/* ---------------------------------------------------------
-   DATUMSFELDER
-   Kaufdatum und Erstzulassung exakt auf Feldbreite
-   der übrigen Eingabefelder begrenzen.
---------------------------------------------------------- */
-
-#currentPurchaseDate,
-#newRegistrationDate {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-}
-
-
-/*
- * Auch das Label darf das Grid nicht künstlich
- * verbreitern.
- */
-
-label:has(#currentPurchaseDate),
-label:has(#newRegistrationDate) {
-  min-width: 0;
-}
-
-
-/* ---------------------------------------------------------
-   GESPEICHERTE AUTOS
-   Laden und Löschen immer untereinander
---------------------------------------------------------- */
-
-.saved .actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 12px;
-}
-
-
-/*
- * Beide Buttons erhalten dieselbe Breite.
- */
-
-.saved .actions .btn {
-  width: 100%;
-  min-width: 120px;
-  box-sizing: border-box;
-}
-
-
-/* ---------------------------------------------------------
-   „Keine Fahrzeugdaten“ sauber darstellen
---------------------------------------------------------- */
-
-.saved-subtitle {
-  display: block;
-  line-height: 1.35;
+  .saved .actions {
+    width: 100%;
+    flex: none;
+  }
 }
